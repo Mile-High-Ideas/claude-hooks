@@ -352,7 +352,13 @@ type GoTestsConfig struct {
 
 // ConvexConfig configures Convex validation
 type ConvexConfig struct {
-	Path           string `json:"path"`
+	Path string `json:"path"`
+	// Mode selects how the backend is validated: "codegen" (default) checks
+	// that functions compile without touching the deployment, "dev" pushes to
+	// the configured deployment. See ConvexModeCodegen / ConvexModeDev.
+	Mode string `json:"mode"`
+	// SuccessMarker is the line that means success. Only consulted in "dev"
+	// mode; "codegen" has no completion line and is judged on exit status.
 	SuccessMarker  string `json:"successMarker"`
 	PackageManager string `json:"-"` // Inherited from global config
 }

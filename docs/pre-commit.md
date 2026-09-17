@@ -97,13 +97,50 @@ Run `pre-commit --list` to see all available checks. Currently supported:
 | `stubTestCheck`     | Ban `expect(true).toBe(true)` stub tests (per-app scoped) |
 | `missingTestsCheck` | Ban source files without co-located `.test.ts(x)` (per-app scoped) |
 | `goLint`            | Go linting (when enabled)                             |
-| `convexValidation`  | Convex schema validation (when enabled)               |
+| `convexValidation`  | Convex functions compile (when enabled) — see [modes](#convex-validation-modes) |
 | `buildCheck`        | Build verification (when enabled)                     |
 | `nextImageCheck`    | Verify Next.js `public/` asset references resolve (static) |
 | `nextLinkCheck`     | Verify Next.js internal links resolve (static / crawl / both) |
 
 See [validate-next](validate-next.md) for the Next.js checks, which are also
 available as a standalone binary.
+
+
+## Convex validation modes
+
+`convexValidation` runs the project's installed Convex CLI. `convexConfig.mode`
+chooses how:
+
+| mode | command | touches the deployment? |
+| --- | --- | --- |
+| `codegen` (default) | `convex codegen --typecheck enable` | **No.** The CLI documents it as "This doesn't modify the code running on the deployment." |
+| `dev` | `convex dev --once` | **Yes — it deploys.** |
+
+```jsonc
+"convexConfig": {
+  "path": "packages/backend",
+  "mode": "codegen"  // omit for the same thing
+}
+```
+
+**`dev` mode deploys.** Step 2 of `convex dev` is documented as "pushes code to
+the configured dev deployment", and `--once` includes it. The deployment is
+whatever `CONVEX_DEPLOY_KEY` names — so if that points at production,
+committing is a production deploy. Worse, the push happens inside the check:
+a commit rejected by a later gate can still have deployed, leaving code serving
+production with no commit to point at.
+
+This was the default until Mile-High-Ideas/claude-hooks#3. It is retained for
+anyone who wants server-side push validation — whether the deployment accepts
+these indexes and schema — and accepts that cost.
+
+`codegen` keeps schema parsing, code generation, component bundling and
+TypeScript. It is also the stricter typecheck: `convex dev` defaults
+`--typecheck` to `try`, which silently skips when tsc cannot run, so the `dev`
+path can pass without typechecking anything.
+
+`successMarker` applies only to `dev`. `codegen` prints no completion line and
+is judged on exit status.
 
 ## Configuration
 
