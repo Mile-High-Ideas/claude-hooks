@@ -180,6 +180,17 @@ install: build
 # (license-restricted, non-redistributable) and so cannot be cross-compiled
 # from a non-macOS host. Build it natively on a Mac with `just build-darwin`
 # or `just <cmdname>`.
+# Release binaries are stripped: symbol tables and DWARF are dead weight in an
+# artefact that is downloaded and run, never attached to a debugger.
+#
+# -extldflags=-s is needed as well as -s -w. Go's own flags drop Go's DWARF,
+# but the CGO objects zig cc links (tree-sitter) keep theirs until the external
+# linker is told to strip too — `file` reports "not stripped" without it.
+#
+# Together they roughly halve each release archive, which matters because
+# oversized parallel uploads were failing the release job outright — see
+# Mile-High-Ideas/claude-hooks#5. build-darwin is deliberately NOT stripped:
+# it is the local convenience build, where symbols are useful.
 build-release: check-workspace build-linux build-linux-arm64 build-windows
 
 # Build every platform including native darwin (local convenience; macOS host only)
@@ -202,7 +213,7 @@ build-linux:
     for cmd in cmd/*/; do
         name=$(basename "$cmd")
         CGO_ENABLED=1 CC="${CC_LINUX_AMD64:-zig cc -target x86_64-linux-musl}" \
-          GOOS=linux GOARCH=amd64 go build -tags "netgo osusergo" -o {{bindir}}/linux-amd64/$name ./cmd/$name
+          GOOS=linux GOARCH=amd64 go build -tags "netgo osusergo" -ldflags "-s -w -extldflags=-s" -o {{bindir}}/linux-amd64/$name ./cmd/$name
     done
 
 # Build for Linux (arm64 — Docker on Apple Silicon) — statically linked musl binary via zig
@@ -213,7 +224,7 @@ build-linux-arm64:
     for cmd in cmd/*/; do
         name=$(basename "$cmd")
         CGO_ENABLED=1 CC="${CC_LINUX_ARM64:-zig cc -target aarch64-linux-musl}" \
-          GOOS=linux GOARCH=arm64 go build -tags "netgo osusergo" -o {{bindir}}/linux-arm64/$name ./cmd/$name
+          GOOS=linux GOARCH=arm64 go build -tags "netgo osusergo" -ldflags "-s -w -extldflags=-s" -o {{bindir}}/linux-arm64/$name ./cmd/$name
     done
 
 # Build for Windows (amd64) — self-contained .exe via zig
@@ -224,7 +235,7 @@ build-windows:
     for cmd in cmd/*/; do
         name=$(basename "$cmd")
         CGO_ENABLED=1 CC="${CC_WINDOWS_AMD64:-zig cc -target x86_64-windows-gnu}" \
-          GOOS=windows GOARCH=amd64 go build -tags "netgo osusergo" -o {{bindir}}/windows-amd64/$name.exe ./cmd/$name
+          GOOS=windows GOARCH=amd64 go build -tags "netgo osusergo" -ldflags "-s -w -extldflags=-s" -o {{bindir}}/windows-amd64/$name.exe ./cmd/$name
     done
 
 # Package release archives (mirrors release.yml packaging step)

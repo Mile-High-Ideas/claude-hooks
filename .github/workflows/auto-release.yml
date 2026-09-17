@@ -36,26 +36,65 @@ jobs:
       - name: Build and package release platforms
         run: just package
 
-      - name: Generate tag
+      # Computed but NOT created here. Creating the tag before the release
+      # exists means a failed release leaves an orphan tag behind, and the
+      # loop below then skips it — so a re-run mints a brand new release
+      # instead of retrying the failed one. See #5.
+      - name: Compute next tag
         run: |
           DATE="$(date -u +%Y%m%d)"
           N=1
           while git ls-remote --tags origin "refs/tags/v0.${DATE}.${N}" 2>/dev/null | grep -q .; do
             N=$((N + 1))
           done
-          TAG="v0.${DATE}.${N}"
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-          git tag "$TAG"
-          git push origin "$TAG"
+          echo "TAG=v0.${DATE}.${N}" >> "$GITHUB_ENV"
 
       - name: Create release
-        # Still on v2 (Node 20) — softprops/action-gh-release#670 tracks the
-        # Node 24 upgrade. Bump when a release lands.
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          generate_release_notes: true
-          files: |
-            bin/claude-hooks-linux-amd64.tar.gz
-            bin/claude-hooks-linux-arm64.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # --target creates the tag as part of creating the release, so the
+          # two cannot get out of step.
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            --draft
+
+          # One archive at a time. Uploading all three concurrently is what
+          # kept failing — two runs, two different errors (Headers Timeout
+          # Error, then Error saving asset) with ~160MB in flight at once.
+          for archive in \
+            bin/claude-hooks-linux-amd64.tar.gz \
+            bin/claude-hooks-linux-arm64.tar.gz \
             bin/claude-hooks-windows-amd64.tar.gz
+          do
+            name="$(basename "$archive")"
+            for attempt in 1 2 3; do
+              if gh release upload "$TAG" "$archive" --clobber; then
+                echo "uploaded $name"
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::$name failed to upload after 3 attempts"
+                exit 1
+              fi
+              echo "::warning::$name upload attempt $attempt failed, retrying"
+              sleep $((attempt * 20))
+            done
+          done
+
+          # Publish only once every asset is actually present. A half-populated
+          # release must never become the one consumers download.
+          gh release edit "$TAG" --draft=false --latest
+
+      # Leave nothing behind. Without this a failed upload strands a draft
+      # release and its tag, and the next run picks the next number rather
+      # than retrying this one.
+      - name: Remove failed release
+        if: failure() && env.TAG != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "$TAG" --cleanup-tag --yes || true
