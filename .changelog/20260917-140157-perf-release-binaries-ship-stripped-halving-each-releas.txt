@@ -1,0 +1,1 @@
+perf: release binaries ship stripped, halving each release archive

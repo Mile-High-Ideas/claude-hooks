@@ -1,0 +1,1 @@
+fix: release assets upload one at a time with retries instead of three at once
