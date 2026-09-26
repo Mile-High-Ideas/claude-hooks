@@ -8,7 +8,62 @@ import (
 	"testing"
 )
 
+// gitRepoEnvVars point git at a specific repository. git exports them to its
+// hooks, so when `go test` runs inside a pre-commit hook every git command a
+// test spawns would act on the repository being committed to, not the temp
+// repo in cmd.Dir.
+var gitRepoEnvVars = []string{
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_COMMON_DIR",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_PREFIX",
+}
+
+// isolateFromOuterGitRepo unsets gitRepoEnvVars for the rest of the test and
+// restores them afterwards. Without it, running the suite from a hook in a
+// linked worktree committed this fixture's "Initial commit" onto the branch
+// being committed.
+func isolateFromOuterGitRepo(t *testing.T) {
+	t.Helper()
+	for _, name := range gitRepoEnvVars {
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			continue
+		}
+		_ = os.Unsetenv(name)
+		t.Cleanup(func() { _ = os.Setenv(name, value) })
+	}
+}
+
+func TestIsolateFromOuterGitRepo(t *testing.T) {
+	const outerDir = "/outer/repo/.git"
+	const outerIndex = "/outer/repo/.git/index"
+	t.Setenv("GIT_DIR", outerDir)
+	t.Setenv("GIT_INDEX_FILE", outerIndex)
+
+	t.Run("unsets hook variables", func(t *testing.T) {
+		isolateFromOuterGitRepo(t)
+		for _, name := range []string{"GIT_DIR", "GIT_INDEX_FILE"} {
+			if value, ok := os.LookupEnv(name); ok {
+				t.Errorf("%s still set to %q", name, value)
+			}
+		}
+	})
+
+	if got := os.Getenv("GIT_DIR"); got != outerDir {
+		t.Errorf("GIT_DIR not restored after the test: got %q, want %q", got, outerDir)
+	}
+	if got := os.Getenv("GIT_INDEX_FILE"); got != outerIndex {
+		t.Errorf("GIT_INDEX_FILE not restored after the test: got %q, want %q", got, outerIndex)
+	}
+}
+
 func TestCheckBranchProtection(t *testing.T) {
+	isolateFromOuterGitRepo(t)
+
 	// Create a temporary git repository for testing
 	tempDir, err := os.MkdirTemp("", "branch-protection-test")
 	if err != nil {
