@@ -160,26 +160,26 @@ install: build
     done
     echo "✓ Installed. Ensure $dest precedes /usr/local/bin on your PATH."
 
-# Cross-compile the released platforms using zig as the C cross-compiler.
+# Cross-compile the zig-built release platforms (linux + windows).
 #
 # pre-commit, validate-srp, and validate-test-files depend on tree-sitter
 # (CGO) for AST-based stub detection, so cross-compiling needs a C toolchain
-# per target. A single tool — zig — covers every released target, replacing
+# per target. A single tool — zig — covers linux and windows, replacing
 # the old musl-cross / mingw-w64 / aarch64 toolchains:
 #
 #   brew install zig          (macOS)
 #   snap install zig --classic / mlugg/setup-zig action  (Linux / CI)
 #
-# Released targets are static and self-contained: linux-amd64 + linux-arm64
+# These targets are static and self-contained: linux-amd64 + linux-arm64
 # are statically linked musl binaries; windows-amd64 depends only on the OS
 # (KERNEL32 + Universal CRT). Override the per-target compiler with the
 # CC_LINUX_AMD64 / CC_LINUX_ARM64 / CC_WINDOWS_AMD64 env vars if needed.
 #
-# darwin-arm64 is intentionally NOT a release target: Go's darwin runtime
-# links CoreFoundation + libresolv, which require the Apple macOS SDK
-# (license-restricted, non-redistributable) and so cannot be cross-compiled
-# from a non-macOS host. Build it natively on a Mac with `just build-darwin`
-# or `just <cmdname>`.
+# darwin is released too, but not from here: Go's darwin runtime links
+# CoreFoundation + libresolv, which need the Apple macOS SDK (license-
+# restricted, non-redistributable), so zig on a Linux host cannot build it.
+# CI builds darwin on a macOS runner with `just package-darwin`.
+#
 # Release binaries are stripped: symbol tables and DWARF are dead weight in an
 # artefact that is downloaded and run, never attached to a debugger.
 #
@@ -189,20 +189,42 @@ install: build
 #
 # Together they roughly halve each release archive, which matters because
 # oversized parallel uploads were failing the release job outright — see
-# Mile-High-Ideas/claude-hooks#5. build-darwin is deliberately NOT stripped:
-# it is the local convenience build, where symbols are useful.
+# Mile-High-Ideas/claude-hooks#5.
 build-release: check-workspace build-linux build-linux-arm64 build-windows
 
-# Build every platform including native darwin (local convenience; macOS host only)
+# Build every release platform (macOS host only: darwin needs the Apple SDK)
 build-all: check-workspace build-darwin build-release
 
-# Build for macOS (Apple Silicon)
-build-darwin:
+# Build both darwin release targets (macOS host only)
+build-darwin: (build-darwin-arch "arm64") (build-darwin-arch "amd64")
+
+# darwin targets build natively with the host's clang and Apple SDK.
+#
+# An Apple Silicon host builds amd64 too: clang's -arch x86_64 compiles the
+# tree-sitter CGO objects for Intel against the same SDK, no second machine
+# needed. MACOSX_DEPLOYMENT_TARGET pins the minimum macOS to Go's own floor;
+# left unset, clang stamps the SDK's version and the binaries refuse to run
+# on older releases. Strip with -s -w only: Apple's linker treats -s as
+# obsolete and warns.
+#
+# Build one darwin target (arm64 or amd64) natively; macOS host only
+build-darwin-arch arch:
     #!/usr/bin/env bash
-    mkdir -p {{bindir}}/darwin-arm64
+    set -euo pipefail
+    if [ "$(uname -s)" != "Darwin" ]; then
+        echo "Error: darwin builds need the Apple SDK and must run on macOS." >&2
+        exit 1
+    fi
+    case "{{arch}}" in
+        arm64) clang_arch=arm64 ;;
+        amd64) clang_arch=x86_64 ;;
+        *) echo "Error: unsupported darwin arch {{arch}}" >&2; exit 1 ;;
+    esac
+    mkdir -p {{bindir}}/darwin-{{arch}}
     for cmd in cmd/*/; do
         name=$(basename "$cmd")
-        CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o {{bindir}}/darwin-arm64/$name ./cmd/$name
+        CGO_ENABLED=1 CC="clang -arch $clang_arch" MACOSX_DEPLOYMENT_TARGET=12.0 \
+          GOOS=darwin GOARCH={{arch}} go build -ldflags "-s -w" -o {{bindir}}/darwin-{{arch}}/$name ./cmd/$name
     done
 
 # Build for Linux (amd64) — statically linked musl binary via zig
@@ -238,7 +260,7 @@ build-windows:
           GOOS=windows GOARCH=amd64 go build -tags "netgo osusergo" -ldflags "-s -w -extldflags=-s" -o {{bindir}}/windows-amd64/$name.exe ./cmd/$name
     done
 
-# Package release archives (mirrors release.yml packaging step)
+# Package the zig-built release archives (the Linux CI job's packaging step)
 package: build-release
     cd bin && \
     for platform in linux-amd64 linux-arm64 windows-amd64; do \
@@ -246,6 +268,15 @@ package: build-release
     done
     @echo "Archives created in bin/"
     @ls -lh bin/*.tar.gz
+
+# Package the darwin release archives (the macOS CI job's packaging step)
+package-darwin: build-darwin
+    cd bin && \
+    for platform in darwin-arm64 darwin-amd64; do \
+        tar -czf "claude-hooks-${platform}.tar.gz" -C "$platform" . ; \
+    done
+    @echo "Archives created in bin/"
+    @ls -lh bin/claude-hooks-darwin-*.tar.gz
 
 # Run the full CI pipeline locally (test + build-release + package)
 ci: test package
