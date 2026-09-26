@@ -108,7 +108,7 @@ available as a standalone binary.
 
 ## Convex validation modes
 
-`convexValidation` runs the project's installed Convex CLI. `convexConfig.mode`
+`convexValidation` runs the project's installed Convex CLI. `convex.mode`
 chooses how:
 
 | mode | command | touches the deployment? |
@@ -117,7 +117,7 @@ chooses how:
 | `dev` | `convex dev --once` | **Yes — it deploys.** |
 
 ```jsonc
-"convexConfig": {
+"convex": {
   "path": "packages/backend",
   "mode": "codegen"  // omit for the same thing
 }
@@ -141,6 +141,31 @@ path can pass without typechecking anything.
 
 `successMarker` applies only to `dev`. `codegen` prints no completion line and
 is judged on exit status.
+
+### Production guard
+
+Before either mode runs, the check refuses to validate against a production
+deployment. It looks at `CONVEX_DEPLOY_KEY` and `CONVEX_DEPLOYMENT` in the
+process environment and in `.env.local` / `.env` under `convex.path` (the files
+the Convex CLI loads), and blocks the commit when either starts with `prod:`.
+
+The refusal names the variable and the file it came from, never its value, and
+tells the developer to run `just convex-local-setup` to point the checkout at a
+local deployment. `anonymous:`, `local:`, `dev:` and `preview:` values pass.
+
+Why: `codegen` is read-only, but it still needs a credential, and when the only
+credential in a checkout is the production deploy key, every worktree and agent
+session that commits ends up holding it. A `"mode": "dev"` typo with that key in
+place is a production deploy.
+
+The guard is on by default. To turn it off:
+
+```jsonc
+"convex": {
+  "path": "packages/backend",
+  "refuseProductionDeployment": false
+}
+```
 
 ## Configuration
 
