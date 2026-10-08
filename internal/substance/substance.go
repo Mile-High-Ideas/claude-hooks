@@ -198,12 +198,21 @@ func CountCodeLines(content string) int {
 // types, not rendering, and shouldn't be subjected to UI gates.
 var reactImportRe = regexp.MustCompile(`(?m)^[ \t]*import\s+[^;]*\bfrom\s+['"]react['"]`)
 
-// jsxComponentRe matches `<Foo`, `<Foo.Bar`, `<Foo>` — JSX element open
-// tags that start with a capital letter (component) or contain a dot
-// (namespaced component). Avoids matching HTML-style `<div>`, `<a>`, etc.
-// to keep the false-positive rate down on files that contain template
-// strings with HTML-like content.
-var jsxComponentRe = regexp.MustCompile(`<[A-Z][A-Za-z0-9_]*[\s/>.]`)
+// jsxSelfClosingRe matches a self-closing component tag: `<Foo />`,
+// `<Foo.Bar />`, `<Foo prop={x} onPress={() => go()} />`. The name must
+// start with a capital letter (component) so HTML-like `<div/>` inside
+// template strings doesn't count. Attributes may not contain `<`, which
+// keeps a match from spanning across unrelated generic brackets.
+var jsxSelfClosingRe = regexp.MustCompile(`<[A-Z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*(?:\s[^<]*?)?/>`)
+
+// jsxClosingTagRe matches a component closing tag: `</Foo>`, `</Foo.Bar>`.
+//
+// Requiring a closed tag (self-closing, or a matching closer) is what
+// separates JSX from TypeScript generics. An opening `<Foo` alone is
+// ambiguous — `Promise<Foo>`, `Array<T>`, `Record<K, V>`, and
+// `function f<T extends string>()` all look like one — but no TypeScript
+// type syntax produces `</Foo>` or `<Foo ... />`.
+var jsxClosingTagRe = regexp.MustCompile(`</[A-Z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*\s*>`)
 
 // jsxFragmentRe matches the bare-fragment shape `<>...</>` which marks
 // a file as JSX even when no component is rendered.
@@ -211,13 +220,14 @@ var jsxFragmentRe = regexp.MustCompile(`<>\s*[^<]*</>|<>\s*<`)
 
 // IsUIComponent reports whether content looks like a React component
 // source file. True when the file imports from "react" (any import shape)
-// or contains a JSX component tag or fragment. Pure data utilities and
-// hooks files that don't render anything return false.
+// or contains a closed JSX component tag or fragment. TypeScript generics
+// (`Promise<Foo>`, `f<T extends string>`) are not JSX. Pure data utilities
+// and hooks files that don't render anything return false.
 func IsUIComponent(content string) bool {
 	if reactImportRe.MatchString(content) {
 		return true
 	}
-	if jsxComponentRe.MatchString(content) {
+	if jsxSelfClosingRe.MatchString(content) || jsxClosingTagRe.MatchString(content) {
 		return true
 	}
 	if jsxFragmentRe.MatchString(content) {
