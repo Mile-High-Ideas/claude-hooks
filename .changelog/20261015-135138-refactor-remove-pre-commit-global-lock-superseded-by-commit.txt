@@ -1,0 +1,1 @@
+refactor: remove pre-commit -global-lock, superseded by commit-queue

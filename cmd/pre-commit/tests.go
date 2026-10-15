@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +19,18 @@ type TestRunContext struct {
 	GlobalEnabled  bool              // Global tests feature flag (can be overridden per-app)
 	PackageManager string            // Package manager to use (pnpm, bun, npm, yarn)
 	Env            map[string]string // Environment variables for commands
+}
+
+// runCapturedTestCommand runs one app's test command and returns its
+// combined output. Tests replace it so they never spawn a real suite.
+var runCapturedTestCommand = runCommandCapturedWithEnv
+
+// appTestResult is the outcome of one app's test suite in compact mode.
+type appTestResult struct {
+	app           string
+	output        string
+	err           error
+	retryAttempts int
 }
 
 // runTests runs tests based on configuration and affected files
@@ -46,122 +60,184 @@ func runTests(ctx TestRunContext) error {
 	if pm == "" {
 		pm = "pnpm"
 	}
+	appNames := sortedAppNames(appsToTest)
 
-	var failedApps []string
-	var passedApps []string
-	failureCounts := make(map[string]int) // appName -> number of failed tests
-	retriedApps := make(map[string]int)   // appName -> retry attempts that ultimately passed
+	if !compactMode() {
+		return runTestsVerbose(ctx, pm, appNames, appsToTest)
+	}
 
-	for appName, appConfig := range appsToTest {
-		// Use custom test command if specified, otherwise default to "test"
-		testCmd := appConfig.TestCommand
-		if testCmd == "" {
-			testCmd = "test"
+	var results []appTestResult
+	if ctx.Config.Parallel {
+		results = runAppTestsParallel(ctx, pm, appNames, appsToTest)
+	} else {
+		results = runAppTestsSequential(ctx, pm, appNames, appsToTest)
+	}
+	return summarizeTestResults(results)
+}
+
+// sortedAppNames returns the app names in a stable order, so runs and
+// failure messages do not depend on map iteration.
+func sortedAppNames(apps map[string]AppConfig) []string {
+	names := make([]string, 0, len(apps))
+	for name := range apps {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// testCommandArgs builds the package-manager arguments for one app's tests.
+func testCommandArgs(appConfig AppConfig) []string {
+	// Use custom test command if specified, otherwise default to "test"
+	testCmd := appConfig.TestCommand
+	if testCmd == "" {
+		testCmd = "test"
+	}
+	args := []string{"--filter", appConfig.Filter, testCmd}
+
+	// Append per-app test args (e.g., --watchman=false for Jest)
+	if len(appConfig.TestArgs) > 0 {
+		args = append(args, "--")
+		args = append(args, appConfig.TestArgs...)
+	}
+	return args
+}
+
+// runAppTestsSequential runs each app's suite after the previous one ends.
+func runAppTestsSequential(ctx TestRunContext, pm string, appNames []string, apps map[string]AppConfig) []appTestResult {
+	results := make([]appTestResult, 0, len(appNames))
+	for _, appName := range appNames {
+		results = append(results, runAppTestsCompact(ctx, pm, appName, apps[appName]))
+	}
+	return results
+}
+
+// runAppTestsParallel starts every app's suite at once and returns the
+// results in appNames order once all of them have finished.
+func runAppTestsParallel(ctx TestRunContext, pm string, appNames []string, apps map[string]AppConfig) []appTestResult {
+	results := make([]appTestResult, len(appNames))
+	var wg sync.WaitGroup
+	for i, appName := range appNames {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = runAppTestsCompact(ctx, pm, appName, apps[appName])
+		}()
+	}
+	wg.Wait()
+	return results
+}
+
+// runAppTestsCompact runs one app's suite with output captured to its report
+// file, retrying per TestConfig, and prints its start and status lines.
+func runAppTestsCompact(ctx TestRunContext, pm, appName string, appConfig AppConfig) appTestResult {
+	args := testCommandArgs(appConfig)
+
+	// Per-app start line so each app's run shows up live in compact mode
+	// instead of disappearing into the long Tests phase.
+	appCheck := "Tests " + appName
+	printStart(appCheck)
+
+	output, err := runCapturedTestCommand(ctx.Env, pm, args...)
+
+	// Retry policy: TestConfig.Retries gives every failed run a
+	// chance to recover from environmental flake. Files listed in
+	// TestConfig.FlakyTestFiles get one extra retry beyond that,
+	// but only when the failure output mentions one of them — a
+	// real regression in non-quarantined code still fails fast.
+	retries := ctx.Config.Retries
+	if err != nil && hasFlakyFailure(output, ctx.Config.FlakyTestFiles) {
+		retries++
+	}
+	retryAttempts := 0
+	for err != nil && retryAttempts < retries {
+		retryAttempts++
+		output, err = runCapturedTestCommand(ctx.Env, pm, args...)
+	}
+
+	writeTestReport(appName, output, err, reportDir)
+	switch {
+	case err != nil:
+		printStatus(appCheck, false, fmt.Sprintf("%d failed", parseTestFailureCount(output)))
+	case retryAttempts > 0:
+		printStatus(appCheck, true, fmt.Sprintf("after %d retry", retryAttempts))
+	default:
+		printStatus(appCheck, true, "")
+	}
+	return appTestResult{app: appName, output: output, err: err, retryAttempts: retryAttempts}
+}
+
+// summarizeTestResults prints the overall Tests status line and returns an
+// error naming every app whose suite failed.
+func summarizeTestResults(results []appTestResult) error {
+	var failed, passed, recovered []string
+	for _, r := range results {
+		if r.err != nil {
+			if count := parseTestFailureCount(r.output); count > 0 {
+				failed = append(failed, fmt.Sprintf("%s %d failed", r.app, count))
+			} else {
+				failed = append(failed, r.app+" failed")
+			}
+			continue
 		}
-
-		// Build args based on package manager
-		var args []string
-		if pm == "bun" {
-			args = []string{"--filter", appConfig.Filter, testCmd}
-		} else {
-			args = []string{"--filter", appConfig.Filter, testCmd}
+		passed = append(passed, r.app)
+		if r.retryAttempts > 0 {
+			word := "retry"
+			if r.retryAttempts != 1 {
+				word = "retries"
+			}
+			recovered = append(recovered, fmt.Sprintf("%s after %d %s", r.app, r.retryAttempts, word))
 		}
+	}
 
-		// Append per-app test args (e.g., --watchman=false for Jest)
-		if len(appConfig.TestArgs) > 0 {
-			args = append(args, "--")
-			args = append(args, appConfig.TestArgs...)
+	if len(failed) > 0 {
+		printStatus("Tests", false, strings.Join(failed, ", "))
+		printReportHint("tests/")
+		failedApps := make([]string, 0, len(failed))
+		for _, r := range results {
+			if r.err != nil {
+				failedApps = append(failedApps, r.app)
+			}
 		}
+		return fmt.Errorf("%s tests failed", strings.Join(failedApps, ", "))
+	}
 
-		// Per-app start line so each app's run shows up live in compact mode
-		// instead of disappearing into the long Tests phase.
+	summary := strings.Join(passed, ", ")
+	if len(recovered) > 0 {
+		summary += " — recovered: " + strings.Join(recovered, ", ")
+	}
+	printStatus("Tests", true, summary)
+	return nil
+}
+
+// runTestsVerbose streams each app's suite to the terminal, one at a time,
+// and stops at the first app that still fails after its retries.
+func runTestsVerbose(ctx TestRunContext, pm string, appNames []string, apps map[string]AppConfig) error {
+	for _, appName := range appNames {
+		appConfig := apps[appName]
+		args := testCommandArgs(appConfig)
 		appCheck := "Tests " + appName
 		printStart(appCheck)
 
-		if compactMode() {
-			// Capture output and write to report file
-			output, err := runCommandCapturedWithEnv(ctx.Env, pm, args...)
-
-			// Retry policy: TestConfig.Retries gives every failed run a
-			// chance to recover from environmental flake. Files listed in
-			// TestConfig.FlakyTestFiles get one extra retry beyond that,
-			// but only when the failure output mentions one of them — a
-			// real regression in non-quarantined code still fails fast.
-			retries := ctx.Config.Retries
-			if err != nil && hasFlakyFailure(output, ctx.Config.FlakyTestFiles) {
-				retries++
-			}
-			retryAttempts := 0
-			for err != nil && retryAttempts < retries {
-				retryAttempts++
-				output, err = runCommandCapturedWithEnv(ctx.Env, pm, args...)
-			}
-
-			writeTestReport(appName, output, err, reportDir)
-			if err != nil {
-				failedApps = append(failedApps, appName)
-				failureCounts[appName] = parseTestFailureCount(output)
-				printStatus(appCheck, false, fmt.Sprintf("%d failed", failureCounts[appName]))
-			} else {
-				if retryAttempts > 0 {
-					retriedApps[appName] = retryAttempts
-					printStatus(appCheck, true, fmt.Sprintf("after %d retry", retryAttempts))
-				} else {
-					printStatus(appCheck, true, "")
-				}
-				passedApps = append(passedApps, appName)
-			}
+		fmt.Printf("\nRunning %s tests (command: %s)...\n", appName, args[2])
+		err := runCommandWithEnv(ctx.Env, pm, args...)
+		retries := ctx.Config.Retries
+		retryAttempts := 0
+		for err != nil && retryAttempts < retries {
+			retryAttempts++
+			fmt.Printf("\nRetrying %s tests (attempt %d/%d)...\n", appName, retryAttempts, retries)
+			err = runCommandWithEnv(ctx.Env, pm, args...)
+		}
+		if err != nil {
+			fmt.Printf("%s tests failed\n", appName)
+			return fmt.Errorf("%s tests failed", appName)
+		}
+		if retryAttempts > 0 {
+			fmt.Printf("%s tests passed (after %d retry)\n", appName, retryAttempts)
 		} else {
-			fmt.Printf("\nRunning %s tests (command: %s)...\n", appName, testCmd)
-			err := runCommandWithEnv(ctx.Env, pm, args...)
-			retries := ctx.Config.Retries
-			retryAttempts := 0
-			for err != nil && retryAttempts < retries {
-				retryAttempts++
-				fmt.Printf("\nRetrying %s tests (attempt %d/%d)...\n", appName, retryAttempts, retries)
-				err = runCommandWithEnv(ctx.Env, pm, args...)
-			}
-			if err != nil {
-				fmt.Printf("%s tests failed\n", appName)
-				return fmt.Errorf("%s tests failed", appName)
-			}
-			if retryAttempts > 0 {
-				fmt.Printf("%s tests passed (after %d retry)\n", appName, retryAttempts)
-			} else {
-				fmt.Printf("%s tests passed\n", appName)
-			}
+			fmt.Printf("%s tests passed\n", appName)
 		}
 	}
-
-	if compactMode() {
-		if len(failedApps) > 0 {
-			parts := make([]string, len(failedApps))
-			for i, app := range failedApps {
-				if count, ok := failureCounts[app]; ok && count > 0 {
-					parts[i] = fmt.Sprintf("%s %d failed", app, count)
-				} else {
-					parts[i] = app + " failed"
-				}
-			}
-			printStatus("Tests", false, strings.Join(parts, ", "))
-			printReportHint("tests/")
-			return fmt.Errorf("%s tests failed", strings.Join(failedApps, ", "))
-		}
-		summary := strings.Join(passedApps, ", ")
-		if len(retriedApps) > 0 {
-			retryParts := make([]string, 0, len(retriedApps))
-			for app, n := range retriedApps {
-				word := "retry"
-				if n != 1 {
-					word = "retries"
-				}
-				retryParts = append(retryParts, fmt.Sprintf("%s after %d %s", app, n, word))
-			}
-			summary += " — recovered: " + strings.Join(retryParts, ", ")
-		}
-		printStatus("Tests", true, summary)
-	}
-
 	return nil
 }
 
