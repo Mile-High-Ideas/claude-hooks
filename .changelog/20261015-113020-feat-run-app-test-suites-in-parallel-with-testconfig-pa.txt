@@ -1,0 +1,1 @@
+feat: run app test suites in parallel with testConfig.parallel
