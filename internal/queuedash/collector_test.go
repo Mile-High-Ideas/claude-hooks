@@ -194,6 +194,10 @@ func TestDashboardServesThePageAndState(t *testing.T) {
 	if !strings.Contains(page, `<select id="window" data-default="20">`) {
 		t.Error("page does not carry the default window")
 	}
+	// Restoring focus after each poll must not scroll the page (#1144).
+	if strings.Contains(page, "?.focus();") || !strings.Contains(page, "focus({ preventScroll: true })") {
+		t.Error("page restores focus with a plain focus(), which scrolls the page on every poll")
+	}
 	var state DashboardState
 	if err := json.Unmarshal([]byte(dashGet(t, srv.URL+"/api/state?window=5000")), &state); err != nil {
 		t.Fatalf("decode state: %v", err)

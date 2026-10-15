@@ -759,10 +759,12 @@
     <th class="hide-sm">Failure</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
         // The table is rebuilt on every poll; keep keyboard focus where it was.
+        // preventScroll: a plain focus() scrolls the button into view, which
+        // dragged the page back to this table on every poll (#1144).
         if (focusedId) {
           [...$('recent').querySelectorAll('button.toggle')]
             .find((b) => b.dataset.id === focusedId)
-            ?.focus();
+            ?.focus({ preventScroll: true });
         }
       }
 
