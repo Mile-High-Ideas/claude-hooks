@@ -9,7 +9,34 @@ permissions:
   contents: write
 
 jobs:
+  # darwin needs the Apple SDK, which only a macOS host has, so it cannot join
+  # the zig cross-compile below. macos-latest is Apple Silicon: it builds arm64
+  # natively and amd64 with clang -arch x86_64 against the same SDK.
+  darwin:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false  # No external deps → no go.sum → nothing to cache
+
+      - name: Install just
+        uses: extractions/setup-just@v4
+
+      - name: Build and package darwin
+        run: just package-darwin
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: darwin-archives
+          path: bin/claude-hooks-darwin-*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
   release:
+    needs: darwin
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -26,8 +53,8 @@ jobs:
         uses: extractions/setup-just@v4
 
       # zig is the C cross-compiler for the tree-sitter (CGO) binaries.
-      # One tool builds every release target (linux-amd64, linux-arm64,
-      # windows-amd64). darwin is not released — it needs the Apple SDK.
+      # One tool builds linux-amd64, linux-arm64 and windows-amd64. darwin
+      # comes from the macOS job above, which this job waits on.
       - name: Install zig
         uses: mlugg/setup-zig@v2
         with:
@@ -35,6 +62,11 @@ jobs:
 
       - name: Build and package release platforms
         run: just package
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: darwin-archives
+          path: bin
 
       # Computed but NOT created here. Creating the tag before the release
       # exists means a failed release leaves an orphan tag behind, and the
@@ -63,13 +95,15 @@ jobs:
             --generate-notes \
             --draft
 
-          # One archive at a time. Uploading all three concurrently is what
+          # One archive at a time. Uploading them all concurrently is what
           # kept failing — two runs, two different errors (Headers Timeout
           # Error, then Error saving asset) with ~160MB in flight at once.
           for archive in \
             bin/claude-hooks-linux-amd64.tar.gz \
             bin/claude-hooks-linux-arm64.tar.gz \
-            bin/claude-hooks-windows-amd64.tar.gz
+            bin/claude-hooks-windows-amd64.tar.gz \
+            bin/claude-hooks-darwin-arm64.tar.gz \
+            bin/claude-hooks-darwin-amd64.tar.gz
           do
             name="$(basename "$archive")"
             for attempt in 1 2 3; do
