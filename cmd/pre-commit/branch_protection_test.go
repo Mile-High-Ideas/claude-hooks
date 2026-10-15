@@ -171,6 +171,11 @@ func clearGitHookEnv(t *testing.T) {
 }
 
 func TestClearGitHookEnvKeepsTempRepoOffTheHookRepo(t *testing.T) {
+	// Clear the real hook environment before creating the decoy: when this
+	// test runs inside a commit hook, an `init` with the inherited GIT_DIR
+	// re-initializes the repo being committed as a bare one.
+	clearGitHookEnv(t)
+
 	// The repo a hook would be committing to.
 	hookRepo := t.TempDir()
 	if err := runGitCommand(hookRepo, "init"); err != nil {
