@@ -7,6 +7,8 @@
 //	commit-queue status [--json]
 //	commit-queue wait [--all] [--poll <duration>]
 //	commit-queue dashboard [--port 4180] [--window 50] [--once]
+//	commit-queue holds <name>
+//	commit-queue require
 //
 // `run` is the usual entry point. Start it detached so it outlives the
 // agent that queued it:
@@ -34,6 +36,8 @@ const usage = `usage:
   commit-queue status [--json]
   commit-queue wait [--all] [--poll <duration>]
   commit-queue dashboard [--host 127.0.0.1] [--port 4180] [--window 50] [--once]
+  commit-queue holds <name>     exit 0 if <name> holds a slot through a live runner
+  commit-queue require          commit hook gate: refuse an agent's unqueued commit
 
 Global flag (before the command): --slots <n>, or COMMIT_QUEUE_SLOTS.
 `
@@ -91,6 +95,17 @@ func dispatch(args []string, out, errOut io.Writer) int {
 		return waitForExits(*all, *poll, out)
 	case "dashboard":
 		return runDashboard(cmdArgs, *slots, out, errOut)
+	case "holds":
+		if len(cmdArgs) != 1 {
+			say(errOut, "%s", usage)
+			return 2
+		}
+		if holdsSlot(cmdArgs[0]) {
+			return 0
+		}
+		return 1
+	case "require":
+		return requireQueued(errOut)
 	default:
 		say(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2

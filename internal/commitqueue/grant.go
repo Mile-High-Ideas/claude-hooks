@@ -258,3 +258,24 @@ func indexOfTicket(ts []Ticket, id string) int {
 	}
 	return -1
 }
+
+// Holds reports whether name holds a slot for repo through a process that
+// is still alive. A commit hook asks this to tell a commit made by a queued
+// run from one made directly with the run's marker copied by hand.
+func (q *Queue) Holds(name, repo string) (bool, error) {
+	held := false
+	err := q.withLock(func() error {
+		slots, err := q.heldSlots()
+		if err != nil {
+			return err
+		}
+		for _, s := range slots {
+			if s.Name == name && s.Repo == repo && q.processAlive(s.PID) {
+				held = true
+				return nil
+			}
+		}
+		return nil
+	})
+	return held, err
+}

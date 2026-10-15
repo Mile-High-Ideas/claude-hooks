@@ -110,6 +110,8 @@ func queueAndCommit(q *commitqueue.Queue, cfg queueConfig, repo repoInfo, name, 
 		say(log, "[commit-slot] %s released slot-%d\n", name, slot.Number)
 	}()
 
+	// Mark the commit as this run's, for `commit-queue require` in its hooks.
+	env = append(env, runMarkerEnv+"="+name)
 	return gitCommit(ctx, worktree, gitArgs, env, log)
 }
 
