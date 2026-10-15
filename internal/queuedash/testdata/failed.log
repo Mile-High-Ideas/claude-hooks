@@ -1,0 +1,16 @@
+[run-commit] node 24.19.0 from /home/test/.nvm/versions/node/v24.19.0/bin
+[run-commit] TMPDIR=/repo/.git/convex-tmp
+[commit-slot] issue-888 holds slot-1 from 11:47:40
+Running convex-gen...
+Running pre-commit checks...
+
+📁 Reports will be written to: analysis-reports/fix-888-mobile-types_20261013_114742
+
+  ▶ 11:47:42 Formatting
+  ❌ Formatting (11:47:43, 524ms, lint-staged failed)
+  ▶ 11:47:43 Typecheck
+  ▶ 11:47:43 Typecheck mobile
+  ❌ Typecheck mobile (11:47:52, 9.2s, 34 errors)
+  ❌ Typecheck (11:47:52, 9.4s, mobile 34 errors)
+husky - pre-commit script failed (code 1)
+[commit-slot] issue-888 released slot-1

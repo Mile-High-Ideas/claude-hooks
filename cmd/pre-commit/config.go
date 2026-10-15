@@ -391,6 +391,12 @@ type TestConfig struct {
 	// Listing a test here is a contract: it MUST pass on a clean isolated
 	// run. The quarantine bypasses gate failures, not real bugs.
 	FlakyTestFiles []string `json:"flakyTestFiles,omitempty"`
+	// Parallel runs every selected app's test suite at the same time, so
+	// the Tests phase lasts as long as the slowest suite rather than the
+	// sum of them. Default: false. Only applies in compact mode (reportDir
+	// set), where each suite's output is captured to its report file;
+	// verbose mode streams suites to the terminal and stays sequential.
+	Parallel bool `json:"parallel,omitempty"`
 }
 
 // AppTestOverride configures test behavior for a specific app

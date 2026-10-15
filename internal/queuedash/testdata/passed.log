@@ -1,0 +1,33 @@
+[run-commit] queued at 1791992400 pid 4242 on feat/1019-commit-queue-dashboard in /work/tree one
+[run-commit] subject: feat(scripts): add the commit queue dashboard
+[run-commit] node 24.19.0 from /home/test/.nvm/versions/node/v24.19.0/bin
+[commit-slot] issue-1019 holds slot-2 from 15:42:17
+Running convex-gen...
+Generation complete!
+Running pre-commit checks...
+
+📁 Reports will be written to: analysis-reports/feat-1019-commit-queue-dashboard_20261014_154220
+
+  ▶ 15:42:20 Changelog
+Found changelog fragments for: web
+
+  ✅ Changelog (15:42:20, 0ms)
+  ▶ 15:42:20 Formatting
+  ✅ Formatting (15:42:21, 1.7s)
+  ▶ 15:42:21 Tests
+  ▶ 15:42:21 Tests web
+  ▶ 15:42:21 Lint vendor-sync
+  ✅ Lint vendor-sync (15:42:21, 0ms, skipped)
+  ▶ 15:42:21 SRP compliance
+  ⚠️  SRP compliance (15:42:28, 6.2s, 453 warnings, 4589 files) (warning)
+     → analysis-reports/feat-1019-commit-queue-dashboard_20261014_154220/srp/
+  ⚠ Schema snapshot is behind the migrations.
+  ✅ Tests web (15:49:10, 6m48s)
+  ✅ Tests (15:49:10, 6m49s, web)
+
+================================
+  ALL PRE-COMMIT CHECKS PASSED!
+================================
+[feat/1019-commit-queue-dashboard 07cf8f799] feat(scripts): add the commit queue dashboard
+ 3 files changed, 90 insertions(+)
+[commit-slot] issue-1019 released slot-2

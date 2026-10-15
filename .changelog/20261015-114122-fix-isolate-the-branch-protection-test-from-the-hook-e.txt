@@ -1,0 +1,1 @@
+fix: isolate the branch protection test from the hook environment

@@ -1,0 +1,1 @@
+fix: keep the branch protection test from making the hook repo bare

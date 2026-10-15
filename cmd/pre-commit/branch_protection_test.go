@@ -8,61 +8,8 @@ import (
 	"testing"
 )
 
-// gitRepoEnvVars point git at a specific repository. git exports them to its
-// hooks, so when `go test` runs inside a pre-commit hook every git command a
-// test spawns would act on the repository being committed to, not the temp
-// repo in cmd.Dir.
-var gitRepoEnvVars = []string{
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_COMMON_DIR",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_PREFIX",
-}
-
-// isolateFromOuterGitRepo unsets gitRepoEnvVars for the rest of the test and
-// restores them afterwards. Without it, running the suite from a hook in a
-// linked worktree committed this fixture's "Initial commit" onto the branch
-// being committed.
-func isolateFromOuterGitRepo(t *testing.T) {
-	t.Helper()
-	for _, name := range gitRepoEnvVars {
-		value, ok := os.LookupEnv(name)
-		if !ok {
-			continue
-		}
-		_ = os.Unsetenv(name)
-		t.Cleanup(func() { _ = os.Setenv(name, value) })
-	}
-}
-
-func TestIsolateFromOuterGitRepo(t *testing.T) {
-	const outerDir = "/outer/repo/.git"
-	const outerIndex = "/outer/repo/.git/index"
-	t.Setenv("GIT_DIR", outerDir)
-	t.Setenv("GIT_INDEX_FILE", outerIndex)
-
-	t.Run("unsets hook variables", func(t *testing.T) {
-		isolateFromOuterGitRepo(t)
-		for _, name := range []string{"GIT_DIR", "GIT_INDEX_FILE"} {
-			if value, ok := os.LookupEnv(name); ok {
-				t.Errorf("%s still set to %q", name, value)
-			}
-		}
-	})
-
-	if got := os.Getenv("GIT_DIR"); got != outerDir {
-		t.Errorf("GIT_DIR not restored after the test: got %q, want %q", got, outerDir)
-	}
-	if got := os.Getenv("GIT_INDEX_FILE"); got != outerIndex {
-		t.Errorf("GIT_INDEX_FILE not restored after the test: got %q, want %q", got, outerIndex)
-	}
-}
-
 func TestCheckBranchProtection(t *testing.T) {
-	isolateFromOuterGitRepo(t)
+	clearGitHookEnv(t)
 
 	// Create a temporary git repository for testing
 	tempDir, err := os.MkdirTemp("", "branch-protection-test")
@@ -201,4 +148,59 @@ func runGitCommand(dir string, args ...string) error {
 		"GIT_COMMITTER_EMAIL=test@example.com",
 	)
 	return cmd.Run()
+}
+
+// clearGitHookEnv unsets every GIT_* variable for the rest of the test and
+// restores them afterwards. A git hook runs with GIT_DIR, GIT_INDEX_FILE and
+// friends pointing at the repo being committed, and git honours them over
+// cmd.Dir. Without this, `go test` run from this repo's own pre-commit hook
+// made the temp-dir commit in TestCheckBranchProtection land on the branch
+// being committed: an "Initial commit" that deleted every file.
+func clearGitHookEnv(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		key, value, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(key, "GIT_") {
+			continue
+		}
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unset %s: %v", key, err)
+		}
+		t.Cleanup(func() { _ = os.Setenv(key, value) })
+	}
+}
+
+func TestClearGitHookEnvKeepsTempRepoOffTheHookRepo(t *testing.T) {
+	// Clear the real hook environment before creating the decoy: when this
+	// test runs inside a commit hook, an `init` with the inherited GIT_DIR
+	// re-initializes the repo being committed as a bare one.
+	clearGitHookEnv(t)
+
+	// The repo a hook would be committing to.
+	hookRepo := t.TempDir()
+	if err := runGitCommand(hookRepo, "init"); err != nil {
+		t.Fatalf("init hook repo: %v", err)
+	}
+	t.Setenv("GIT_DIR", filepath.Join(hookRepo, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(hookRepo, ".git", "index"))
+
+	clearGitHookEnv(t)
+
+	scratch := t.TempDir()
+	if err := os.WriteFile(filepath.Join(scratch, "test.txt"), []byte("test"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	for _, args := range [][]string{{"init"}, {"add", "."}, {"commit", "-m", "Initial commit"}} {
+		if err := runGitCommand(scratch, args...); err != nil {
+			t.Fatalf("git %v in scratch repo: %v", args, err)
+		}
+	}
+
+	// The commit belongs to the scratch repo; the hook repo has none.
+	if err := runGitCommand(scratch, "rev-parse", "--verify", "HEAD"); err != nil {
+		t.Errorf("scratch repo has no commit: %v", err)
+	}
+	if err := runGitCommand(hookRepo, "rev-parse", "--verify", "HEAD"); err == nil {
+		t.Error("hook repo gained a commit: the scratch repo's git commands wrote to GIT_DIR")
+	}
 }

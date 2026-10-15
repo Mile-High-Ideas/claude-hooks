@@ -42,6 +42,7 @@ These hooks run after Claude executes a tool, automating follow-up tasks.
 |------|-------------|
 | [pre-commit](docs/pre-commit.md) | Orchestrates all pre-commit validation checks |
 | [changelog-add](docs/changelog-add.md) | Creates changelog fragments with conventional commit format |
+| [commit-queue](docs/commit-queue.md) | Runs commits through a machine-wide, first-come-first-served queue so only N pre-commit suites run at once |
 | [validate-frontend-structure](docs/validate-frontend-structure.md) | Enforces CRUD folder organization |
 | [validate-srp](docs/validate-srp.md) | Validates Single Responsibility Principle |
 | [validate-test-files](docs/validate-test-files.md) | Ensures components have required tests |

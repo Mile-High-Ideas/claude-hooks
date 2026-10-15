@@ -443,6 +443,7 @@ Enable/disable checks with boolean flags. Some checks support extended configura
 "testConfig": {
   "affectedOnly": false,
   "runOnSharedChanges": true,
+  "parallel": false,
   "appOverrides": {
     "web": {
       "enabled": true,
@@ -454,6 +455,13 @@ Enable/disable checks with boolean flags. Some checks support extended configura
 
 - **affectedOnly**: Only run tests for apps with staged changes
 - **runOnSharedChanges**: Run all tests when shared paths change (default: true)
+- **parallel**: Run every selected app's suite at the same time, so the Tests
+  phase lasts as long as the slowest suite instead of the sum of all of them
+  (default: false). Applies in compact mode (`reportDir` set), where each
+  suite's output goes to its own report file. Verbose mode streams output to
+  the terminal and stays sequential. Turn it on only when the machine has the
+  cores for every suite at once; suites that time out under load will start
+  failing.
 - **appOverrides**: Per-app test configuration
   - **enabled**: Override global tests flag for this app
   - **onlyWhenAffected**: Run tests only when this app is affected

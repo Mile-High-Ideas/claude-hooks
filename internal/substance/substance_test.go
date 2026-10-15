@@ -105,6 +105,56 @@ func TestIsUIComponent(t *testing.T) {
 			content: `import { thing } from "lodash"`,
 			want:    false,
 		},
+		{
+			name:    "generic function declaration",
+			content: `export function f<AssignmentId extends string>(x: AssignmentId[]): AssignmentId[] { return x; }`,
+			want:    false,
+		},
+		{
+			name:    "Promise return type",
+			content: `export async function load(id: string): Promise<Foo> { return fetchFoo(id) }`,
+			want:    false,
+		},
+		{
+			name:    "Record type",
+			content: `export function index<K extends string, V>(rows: V[], key: (v: V) => K): Record<K, V> { return {} as Record<K, V> }`,
+			want:    false,
+		},
+		{
+			name:    "Array type",
+			content: `export const uniq = <T>(xs: Array<T>): Array<T> => Array.from(new Set(xs))`,
+			want:    false,
+		},
+		{
+			name:    "nested generics and arrows in a utility module",
+			content: "type Fn = () => void\nexport const m: Map<string, Array<Promise<Result>>> = new Map()\nexport const run = (f: Fn) => f()",
+			want:    false,
+		},
+		{
+			name:    "View with children, no react import",
+			content: "export const X = () => (\n  <View>\n    {children}\n  </View>\n)",
+			want:    true,
+		},
+		{
+			name:    "component with props and arrow attribute",
+			content: `export const X = () => <Button title="Go" onPress={() => go()} />`,
+			want:    true,
+		},
+		{
+			name:    "self-closing without space",
+			content: `export const X = () => <Spinner/>`,
+			want:    true,
+		},
+		{
+			name:    "fragment wrapping a component",
+			content: "export const X = () => (\n  <>\n    <Header title={t} />\n  </>\n)",
+			want:    true,
+		},
+		{
+			name:    "generic component props with JSX body",
+			content: "export function List<T>(props: ListProps<T>) {\n  return <FlatList data={props.items} />\n}",
+			want:    true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,0 +1,4 @@
+[run-commit] queued at 1791992400 pid 7373 on feat/2-long in /work/long
+[run-commit] subject: feat: a header that goes on and on and on and on and on and on and on and on and on and on and on
+[run-commit] commit header is 101 characters; commitlint allows 100:
+[run-commit]   feat: a header that goes on and on and on and on and on and on and on and on and on and on and on
