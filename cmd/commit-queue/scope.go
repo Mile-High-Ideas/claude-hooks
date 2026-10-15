@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -52,15 +50,10 @@ func resolveRepo(worktree string) (repoInfo, error) {
 		return repoInfo{}, fmt.Errorf("%s is not in a git repository: %w", worktree, err)
 	}
 	common := filepath.Clean(out)
-	label := filepath.Base(common)
-	if label == ".git" {
-		label = filepath.Base(filepath.Dir(common))
-	}
-	sum := sha1.Sum([]byte(common))
 	return repoInfo{
 		CommonDir: common,
-		Key:       fileSafe(label) + "-" + hex.EncodeToString(sum[:4]),
-		Label:     label,
+		Key:       commitqueue.RepoKey(common),
+		Label:     commitqueue.RepoLabel(common),
 	}, nil
 }
 
@@ -177,23 +170,9 @@ func gitOutput(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// fileSafe keeps letters, digits, '.', '_' and '-'.
-func fileSafe(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('_')
-		}
-	}
-	return b.String()
-}
-
 // validName rejects run names that are unsafe as a file name.
 func validName(name string) error {
-	if name == "" || strings.HasPrefix(name, ".") || fileSafe(name) != name {
+	if name == "" || strings.HasPrefix(name, ".") || commitqueue.FileSafe(name) != name {
 		return fmt.Errorf("invalid name %q: use letters, digits, '.', '_' or '-', not starting with '.'", name)
 	}
 	return nil

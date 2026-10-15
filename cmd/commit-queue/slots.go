@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -94,19 +93,11 @@ func printStatus(asJSON bool, out io.Writer) int {
 func writeStatusText(out io.Writer, dir string, snap commitqueue.Snapshot, now time.Time) {
 	say(out, "%d of %d slots held · %d waiting · %s\n", len(snap.Held), snap.Slots, len(snap.Waiting), dir)
 	for _, s := range snap.Held {
-		say(out, "  slot-%d  %-28s %-24s %s\n", s.Number, s.Name, repoLabel(s.Repo), roundDur(now.Sub(time.Unix(0, s.StartedAt))))
+		say(out, "  slot-%d  %-28s %-24s %s\n", s.Number, s.Name, commitqueue.RepoLabel(s.Repo), roundDur(now.Sub(time.Unix(0, s.StartedAt))))
 	}
 	for i, t := range snap.Waiting {
-		say(out, "  #%-5d %-28s %-24s waiting %s\n", i+1, t.Name, repoLabel(t.Repo), roundDur(now.Sub(time.Unix(0, t.QueuedAt))))
+		say(out, "  #%-5d %-28s %-24s waiting %s\n", i+1, t.Name, commitqueue.RepoLabel(t.Repo), roundDur(now.Sub(time.Unix(0, t.QueuedAt))))
 	}
-}
-
-// repoLabel shortens a git common directory to the repository's name.
-func repoLabel(commonDir string) string {
-	if filepath.Base(commonDir) == ".git" {
-		return filepath.Base(filepath.Dir(commonDir))
-	}
-	return filepath.Base(commonDir)
 }
 
 func roundDur(d time.Duration) time.Duration {
