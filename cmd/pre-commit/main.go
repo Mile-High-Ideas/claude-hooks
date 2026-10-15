@@ -24,7 +24,6 @@ var (
 	configPath  string
 	reportDir   string
 	noLock      bool
-	globalLock  bool
 )
 
 func init() {
@@ -35,7 +34,6 @@ func init() {
 	flag.StringVar(&configPath, "config", "", "Path to .pre-commit.json config file (defaults to .pre-commit.json in target path)")
 	flag.StringVar(&reportDir, "report-dir", "", "Directory to write detailed lint/typecheck reports (creates lint/ and typecheck/ subdirs)")
 	flag.BoolVar(&noLock, "no-lock", false, "Skip exclusive lock (allow concurrent runs)")
-	flag.BoolVar(&globalLock, "global-lock", os.Getenv("PRE_COMMIT_GLOBAL_LOCK") == "1", "Serialize pre-commit runs across all repos via /tmp/pre-commit-global.lock (waits for previous run to finish). Also enabled by env PRE_COMMIT_GLOBAL_LOCK=1.")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print full per-app output even when reports are being written. Default: compact status lines when report-dir is set.")
 }
 
@@ -265,20 +263,6 @@ func main() {
 		return
 	}
 
-	// Optional system-wide blocking lock — serializes pre-commits across all repos
-	// on this machine. Lets two Claude sessions in different repos coexist without
-	// starving each other on test/typecheck CPU.
-	var globalLockFile *os.File
-	if globalLock && !noLock {
-		var err error
-		globalLockFile, err = acquireGlobalLockBlocking(getRepoToplevel())
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error acquiring global pre-commit lock: %v\n", err)
-			os.Exit(1)
-		}
-	}
-	defer releaseLock(globalLockFile)
-
 	// Acquire exclusive lock to prevent concurrent pre-commit runs
 	var lockFile *os.File
 	if !noLock {
@@ -300,17 +284,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-// getRepoToplevel returns the absolute path of the current git repo, or
-// "unknown" if `git rev-parse` fails (e.g. running outside a repo).
-func getRepoToplevel() string {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	out, err := cmd.Output()
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // getLockPath returns a temp file path unique to the current git repo.
