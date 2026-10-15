@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Commit queue</title>
+    <style>
+      :root {
+        --bg: #f7f7f5;
+        --surface: #ffffff;
+        --surface-2: #f0f0ed;
+        --border: #dddcd7;
+        --text: #1d1d1b;
+        --muted: #6b6a65;
+        --accent: #2f5fd0;
+        --pass: #23824a;
+        --pass-bg: #e3f3e8;
+        --fail: #c2362b;
+        --fail-bg: #fbe5e2;
+        --warn: #9a6400;
+        --warn-bg: #fbf0d9;
+        --run: #2f5fd0;
+        --run-bg: #e3ebfb;
+        --idle: #a3a29c;
+        --bar: #8fa9e6;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #151514;
+          --surface: #1e1e1c;
+          --surface-2: #272725;
+          --border: #363633;
+          --text: #ecebe7;
+          --muted: #9d9c96;
+          --accent: #85a6f2;
+          --pass: #5cc285;
+          --pass-bg: #18311f;
+          --fail: #f07a6f;
+          --fail-bg: #3a1c19;
+          --warn: #e2b04f;
+          --warn-bg: #352a12;
+          --run: #85a6f2;
+          --run-bg: #1c2740;
+          --idle: #66655f;
+          --bar: #4a68b0;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.45 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px 16px 48px;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 20px;
+        align-items: baseline;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 28px 0 10px;
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+      }
+      h2 .count {
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .meta strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .error {
+        color: var(--fail);
+      }
+      label.window {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      select {
+        font: inherit;
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 2px 6px;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+      }
+      .card-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        align-items: baseline;
+      }
+      .card-head .name {
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .mono {
+        font-family: var(--mono);
+        font-size: 12.5px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .subject {
+        margin: 2px 0 10px;
+      }
+      .progress {
+        height: 6px;
+        background: var(--surface-2);
+        border-radius: 3px;
+        overflow: hidden;
+        margin: 8px 0 12px;
+      }
+      .progress > div {
+        height: 100%;
+        background: var(--run);
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 4px 12px;
+      }
+      .step {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+        min-width: 0;
+        padding: 2px 0;
+      }
+      .step .label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .step .time {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex: none;
+        display: inline-block;
+        transform: translateY(1px);
+      }
+      .dot.passed {
+        background: var(--pass);
+      }
+      .dot.failed {
+        background: var(--fail);
+      }
+      .dot.warning {
+        background: var(--warn);
+      }
+      .dot.skipped {
+        background: transparent;
+        border: 1.5px solid var(--idle);
+      }
+      .dot.pending {
+        background: transparent;
+        border: 1.5px dashed var(--idle);
+      }
+      .dot.running {
+        background: var(--run);
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.35;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .dot.running {
+          animation: none;
+        }
+      }
+      .step.pending .label {
+        color: var(--muted);
+      }
+      .step.running .label {
+        font-weight: 600;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--muted);
+        background: var(--surface-2);
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      td.num,
+      th.num {
+        text-align: right;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+      button.toggle {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        text-align: left;
+        display: inline-flex;
+        gap: 6px;
+        align-items: baseline;
+      }
+      button.toggle::before {
+        content: '▸';
+        color: var(--muted);
+        display: inline-block;
+        width: 0.8em;
+      }
+      button.toggle[aria-expanded='true']::before {
+        content: '▾';
+      }
+      button.toggle:hover {
+        color: var(--accent);
+      }
+      button.toggle:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      .badge {
+        display: inline-block;
+        padding: 0 7px;
+        border-radius: 9px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .badge.ok {
+        background: var(--pass-bg);
+        color: var(--pass);
+      }
+      .badge.bad {
+        background: var(--fail-bg);
+        color: var(--fail);
+      }
+      .badge.tag {
+        background: var(--surface-2);
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 10px;
+      }
+      .tile {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 14px;
+      }
+      .tile .k {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tile .v {
+        font-size: 20px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .tile .v small {
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .barcell {
+        width: 32%;
+        min-width: 120px;
+      }
+      .hbar {
+        height: 8px;
+        background: var(--surface-2);
+        border-radius: 4px;
+        position: relative;
+      }
+      .hbar span {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        border-radius: 4px;
+      }
+      .hbar .p95 {
+        background: var(--bar);
+        opacity: 0.55;
+      }
+      .hbar .p50 {
+        background: var(--bar);
+      }
+      tr.group td {
+        color: var(--muted);
+      }
+      .empty {
+        color: var(--muted);
+        padding: 10px 2px;
+      }
+      .timeline {
+        margin-top: 12px;
+      }
+      .tl-row {
+        display: grid;
+        grid-template-columns: minmax(110px, 190px) 1fr 64px;
+        gap: 8px;
+        align-items: center;
+        font-size: 12.5px;
+        padding: 1px 0;
+      }
+      .tl-row .tl-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tl-track {
+        position: relative;
+        height: 12px;
+        background: var(--surface-2);
+        border-radius: 3px;
+      }
+      .tl-track span {
+        position: absolute;
+        top: 1px;
+        bottom: 1px;
+        min-width: 2px;
+        border-radius: 2px;
+      }
+      .tl-track .passed {
+        background: var(--pass);
+      }
+      .tl-track .failed {
+        background: var(--fail);
+      }
+      .tl-track .warning {
+        background: var(--warn);
+      }
+      .tl-track .running {
+        background: var(--run);
+      }
+      .tl-track .derived {
+        background: var(--idle);
+      }
+      .tl-row .num {
+        text-align: right;
+        font-family: var(--mono);
+        color: var(--muted);
+      }
+      td.detail {
+        background: var(--surface-2);
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .legend span {
+        display: inline-flex;
+        gap: 5px;
+        align-items: center;
+      }
+      @media (max-width: 640px) {
+        .hide-sm {
+          display: none;
+        }
+        .barcell {
+          display: none;
+        }
+        label.window {
+          margin-left: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Commit queue</h1>
+        <span class="meta" id="summary">Loading…</span>
+        <label class="window"
+          >Bottlenecks over
+          <select id="window">
+            <option value="20">last 20 runs</option>
+            <option value="50" selected>last 50 runs</option>
+            <option value="100">last 100 runs</option>
+            <option value="500">last 500 runs</option>
+          </select>
+        </label>
+      </header>
+
+      <h2>Running <span class="count" id="running-count"></span></h2>
+      <div id="running"></div>
+      <div id="abandoned"></div>
+
+      <h2>Waiting <span class="count" id="waiting-count"></span></h2>
+      <div id="waiting"></div>
+
+      <h2>
+        Recently finished
+        <span class="count">open a run's name for its timeline</span>
+      </h2>
+      <div id="recent"></div>
+
+      <h2>Bottlenecks <span class="count" id="bottleneck-count"></span></h2>
+      <div id="tiles" class="tiles"></div>
+      <h2>
+        Steps
+        <span class="count"
+          >by p95; groups such as "Tests" overlap the steps inside them</span
+        >
+      </h2>
+      <div id="steps"></div>
+      <h2>Slowest runs <span class="count">time in slot</span></h2>
+      <div id="slowest"></div>
+    </main>
+    <script>
+      'use strict';
+
+      const POLL_MS = 2000;
+      const TIMELINE_MIN_MS = 1000;
+      const GRID_ORDER = { running: 0, failed: 1 };
+      const expanded = new Set();
+      let latest = null;
+
+      const $ = (id) => document.getElementById(id);
+
+      function esc(value) {
+        return String(value ?? '').replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              '&': '&amp;',
+              '<': '&lt;',
+              '>': '&gt;',
+              '"': '&quot;',
+              "'": '&#39;',
+            })[c],
+        );
+      }
+
+      function dur(ms) {
+        if (ms === null || ms === undefined || !Number.isFinite(ms)) return '-';
+        if (ms < 1000) return `${Math.round(ms)}ms`;
+        if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+        const total = Math.round(ms / 1000);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        return h > 0
+          ? `${h}h${String(m).padStart(2, '0')}m`
+          : `${m}m${String(s).padStart(2, '0')}s`;
+      }
+
+      function clock(ms) {
+        if (!ms) return '-';
+        const d = new Date(ms);
+        const today = new Date();
+        const time = d.toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        return d.toDateString() === today.toDateString()
+          ? time
+          : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+      }
+
+      function isGroup(name, names) {
+        return names.some((other) => other.startsWith(`${name} `));
+      }
+
+      function stepTime(step) {
+        const shown =
+          step.result === 'running' ? step.elapsedMs : step.durationMs;
+        const typical =
+          step.typicalMs !== null && step.typicalMs !== undefined
+            ? ` / ${dur(step.typicalMs)}`
+            : '';
+        return step.result === 'running'
+          ? `${dur(shown)}${typical}`
+          : dur(shown);
+      }
+
+      function timeline(run, nowMs) {
+        const names = run.steps.map((s) => s.name);
+        const timed = run.steps.filter(
+          (s) =>
+            s.result !== 'skipped' &&
+            s.startedAt !== null &&
+            !isGroup(s.name, names),
+        );
+        // Most checks take milliseconds; drawing them only hides the slow ones.
+        const steps = timed.filter(
+          (s) => s.endedAt === null || (s.durationMs ?? 0) >= TIMELINE_MIN_MS,
+        );
+        if (steps.length === 0) return '';
+        const hidden = timed.length - steps.length;
+        const start =
+          run.slotAcquiredAt ?? Math.min(...steps.map((s) => s.startedAt));
+        const end = Math.max(
+          run.finishedAt ?? 0,
+          nowMs && run.state !== 'finished' ? nowMs : 0,
+          ...steps.map((s) => s.endedAt ?? s.startedAt),
+        );
+        const spanMs = Math.max(1, end - start);
+        const rows = [...steps]
+          .sort((a, b) => a.startedAt - b.startedAt)
+          .map((s) => {
+            const stop = s.endedAt ?? nowMs ?? s.startedAt;
+            const left = ((s.startedAt - start) / spanMs) * 100;
+            const width = ((stop - s.startedAt) / spanMs) * 100;
+            const cls = s.derived ? 'derived' : s.result;
+            const shown =
+              s.endedAt === null ? stop - s.startedAt : s.durationMs;
+            return `<div class="tl-row"><span class="tl-name" title="${esc(s.name)}">${esc(s.name)}</span>
+      <div class="tl-track"><span class="${esc(cls)}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%"></span></div>
+      <span class="num">${dur(shown)}</span></div>`;
+          })
+          .join('');
+        return `<div class="timeline">${rows}
+    <div class="legend"><span>0 = slot taken</span><span>full width = ${dur(spanMs)}</span>
+    ${hidden ? `<span>${hidden} steps under ${dur(TIMELINE_MIN_MS)} not drawn</span>` : ''}
+    <span><i class="dot passed"></i>passed</span><span><i class="dot warning"></i>warning</span>
+    <span><i class="dot failed"></i>failed</span><span><i class="dot running"></i>running</span>
+    <span><i class="dot" style="background:var(--idle)"></i>setup / finish</span></div></div>`;
+      }
+
+      function stepGrid(run) {
+        const ordered = [...run.steps].sort(
+          (a, b) =>
+            (GRID_ORDER[a.result] ?? 2) - (GRID_ORDER[b.result] ?? 2) ||
+            a.seq - b.seq,
+        );
+        const items = ordered.map(
+          (
+            s,
+          ) => `<div class="step ${esc(s.result)}" title="${esc(s.note ?? '')}">
+      <i class="dot ${esc(s.result)}"></i><span class="label">${esc(s.name)}</span>
+      <span class="time">${esc(stepTime(s))}</span></div>`,
+        );
+        const pending = run.pending.map(
+          (p) => `<div class="step pending">
+      <i class="dot pending"></i><span class="label">${esc(p.name)}</span>
+      <span class="time">${p.typicalMs === null ? '' : '~' + dur(p.typicalMs)}</span></div>`,
+        );
+        return `<div class="steps">${items.concat(pending).join('')}</div>`;
+      }
+
+      // How the run's app test suites ran (#1115): at the same time, or one
+      // after another. Null until there is evidence, so nothing is shown.
+      function testModeBadge(mode) {
+        return mode
+          ? `<span class="badge tag" title="app test suites ran ${mode === 'parallel' ? 'at the same time' : 'one after another'}">tests: ${esc(mode)}</span>`
+          : '';
+      }
+
+      function runningCard(run, state, label) {
+        const done = run.steps.filter(
+          (s) => !s.derived && s.result !== 'running',
+        ).length;
+        const total =
+          run.steps.filter((s) => !s.derived).length + run.pending.length;
+        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+        const failing = run.steps.some((s) => s.result === 'failed');
+        return `<div class="card">
+    <div class="card-head">
+      <span class="name">${esc(run.name)}</span>
+      ${repoTag(run.repo)}
+      ${label}
+      <span class="mono muted">${esc(run.branch ?? '')}</span>
+      <span class="meta">slot-${esc(run.slot)} · in slot <strong>${dur(run.elapsedMs)}</strong>
+        · waited ${dur(run.slotWaitMs)}</span>
+      ${testModeBadge(run.testMode)}
+      ${failing ? '<span class="badge bad">a step failed</span>' : ''}
+    </div>
+    ${run.subject ? `<div class="subject">${esc(run.subject)}</div>` : ''}
+    <div class="progress" title="${done} of about ${total} steps done"><div style="width:${pct}%"></div></div>
+    ${stepGrid(run)}
+    ${timeline(run, state.generatedAt)}
+  </div>`;
+      }
+
+      // The queue serves every repo on the machine, so name the repo when
+      // a run has one (logs from the old per-repo queue do not).
+      function repoTag(repo) {
+        return repo ? `<span class="badge tag">${esc(repo)}</span>` : '';
+      }
+
+      // A slot taken with `commit-queue acquire` has no run log, so all
+      // the page can say is who holds it and for how long.
+      function heldCard(slot, state) {
+        return `<div class="card">
+    <div class="card-head">
+      <span class="name">${esc(slot.owner)}</span>
+      ${repoTag(slot.repo)}
+      <span class="meta">slot-${esc(slot.slot)} · held <strong>${dur(state.generatedAt - slot.startedAt)}</strong>
+        · taken with <span class="mono">commit-queue acquire</span>, so there is no log</span>
+    </div></div>`;
+      }
+
+      function renderRunning(state) {
+        const busy = state.running.length + state.heldWithoutRun.length;
+        $('running-count').textContent = `${busy} of ${state.slotCount} slots`;
+        $('running').innerHTML = busy
+          ? state.running
+              .map((r) => runningCard(r, state, ''))
+              .concat(state.heldWithoutRun.map((s) => heldCard(s, state)))
+              .join('')
+          : '<div class="empty">Nothing is committing.</div>';
+        $('abandoned').innerHTML =
+          state.abandoned.length === 0
+            ? ''
+            : `<h2>Abandoned
+    <span class="count">the runner is gone and wrote no exit code</span></h2>
+    <div class="table-wrap"><table><thead><tr><th>Name</th><th class="hide-sm">Branch</th>
+    <th>Died</th><th class="num">Queued</th><th>To clear</th></tr></thead><tbody>
+    ${state.abandoned
+      .map((r) => {
+        const held = state.slots.some(
+          (s) => s.owner === r.name && s.repoKey === r.repoKey,
+        );
+        const last = [...r.steps].reverse().find((s) => !s.derived);
+        const where =
+          r.slotAcquiredAt === null
+            ? 'while waiting for a slot'
+            : `in slot-${esc(r.slot)}${last ? `, last step ${esc(last.name)}` : ''}`;
+        return `<tr><td>${esc(r.name)}</td><td class="mono hide-sm">${esc(r.branch ?? '')}</td>
+        <td>${where}</td><td class="num">${clock(r.queuedAt)}</td>
+        <td class="mono">${held ? `commit-queue release ${esc(r.name)}` : 're-queue it'}</td></tr>`;
+      })
+      .join('')}</tbody></table></div>`;
+      }
+
+      function renderWaiting(state) {
+        $('waiting-count').textContent = state.waiting.length
+          ? `${state.waiting.length} queued`
+          : '';
+        if (state.waiting.length === 0) {
+          $('waiting').innerHTML =
+            '<div class="empty">No one is waiting.</div>';
+          return;
+        }
+        const rows = state.waiting
+          .map(
+            (w) => `<tr>
+    <td class="num">${w.position}</td><td>${esc(w.name)}</td>
+    <td class="hide-sm">${esc(w.repo)}</td>
+    <td class="mono hide-sm">${esc(w.branch ?? '')}</td>
+    <td class="hide-sm">${esc(w.subject ?? '')}</td>
+    <td class="num">${clock(w.queuedAt)}</td><td class="num">${dur(w.waitMs)}</td></tr>`,
+          )
+          .join('');
+        $('waiting').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th class="num">#</th><th>Name</th><th class="hide-sm">Repo</th><th class="hide-sm">Branch</th>
+    <th class="hide-sm">Subject</th><th class="num">Queued</th><th class="num">Waiting</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div class="legend">First come, first served: #1 takes the next slot that frees up.</div>`;
+      }
+
+      function exitBadge(code) {
+        return code === 0
+          ? '<span class="badge ok">0</span>'
+          : `<span class="badge bad">${esc(code)}</span>`;
+      }
+
+      function renderRecent(state) {
+        if (state.recent.length === 0) {
+          $('recent').innerHTML =
+            '<div class="empty">No finished commits yet.</div>';
+          return;
+        }
+        const focusedId = document.activeElement?.closest?.('#recent')
+          ? document.activeElement.dataset.id
+          : null;
+        const rows = state.recent
+          .map((r, i) => {
+            const open = expanded.has(r.id);
+            const detailId = `timeline-${i}`;
+            const detail = open
+              ? `<tr id="${detailId}"><td class="detail" colspan="9">${r.subject ? esc(r.subject) : ''}
+          ${r.sha ? `<span class="mono muted"> ${esc(r.sha)}</span>` : ''}${timeline(r, null)}</td></tr>`
+              : '';
+            return `<tr>
+      <td><button type="button" class="toggle" data-id="${esc(r.id)}" aria-expanded="${open}" aria-controls="${detailId}">${esc(r.name)}</button></td>
+      <td class="hide-sm">${esc(r.repo)}</td><td class="mono hide-sm">${esc(r.branch ?? '')}</td>
+      <td>${exitBadge(r.exitCode)}</td><td class="num">${clock(r.finishedAt)}</td>
+      <td class="num">${dur(r.runMs)}</td><td class="hide-sm">${esc(r.testMode ?? '')}</td>
+      <td class="num hide-sm">${dur(r.slotWaitMs)}</td>
+      <td class="hide-sm">${esc(r.failure ?? '')}</td></tr>${detail}`;
+          })
+          .join('');
+        $('recent').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th class="hide-sm">Repo</th><th class="hide-sm">Branch</th><th>Exit</th><th class="num">Finished</th>
+    <th class="num">In slot</th><th class="hide-sm">Tests</th><th class="num hide-sm">Waited</th>
+    <th class="hide-sm">Failure</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+        // The table is rebuilt on every poll; keep keyboard focus where it was.
+        if (focusedId) {
+          [...$('recent').querySelectorAll('button.toggle')]
+            .find((b) => b.dataset.id === focusedId)
+            ?.focus();
+        }
+      }
+
+      function tile(label, summary, note = '') {
+        return `<div class="tile"><div class="k">${esc(label)}</div>
+    <div class="v">${dur(summary.p50)} <small>p50</small> · ${dur(summary.p95)} <small>p95</small></div>
+    ${note ? `<div class="k">${esc(note)}</div>` : ''}</div>`;
+      }
+
+      // Slot time for passing runs by how their suites ran, so the effect of
+      // testConfig.parallel (#1115) reads off the page. A mode with no runs
+      // in the window gets no tile.
+      function testModeTiles(byTestMode) {
+        return ['sequential', 'parallel']
+          .filter((mode) => byTestMode[mode].runs > 0)
+          .map((mode) => {
+            const m = byTestMode[mode];
+            return tile(
+              `In the slot, ${mode} tests`,
+              m.run,
+              `${m.runs} passing runs · Tests phase ${dur(m.tests.p50)} p50`,
+            );
+          });
+      }
+
+      function renderBottlenecks(state) {
+        const b = state.bottlenecks;
+        $('bottleneck-count').textContent =
+          `${b.runs} finished runs, ${b.passed} passed · history holds ${state.history.runs} runs`;
+        $('tiles').innerHTML = [
+          tile('Waiting for a slot', b.slotWait),
+          tile('In the slot (whole suite)', b.run),
+          tile('Queued to done', b.total),
+          ...testModeTiles(b.byTestMode),
+          `<div class="tile"><div class="k">Passed</div><div class="v">${b.runs ? Math.round((b.passed / b.runs) * 100) : 0}%
+      <small>${b.passed} of ${b.runs}</small></div></div>`,
+        ].join('');
+        if (b.steps.length === 0) {
+          $('steps').innerHTML =
+            '<div class="empty">No step timings yet.</div>';
+        } else {
+          const scale = Math.max(...b.steps.map((s) => s.p95 ?? 0), 1);
+          const rows = b.steps
+            .map(
+              (s) => `<tr class="${s.group ? 'group' : ''}">
+      <td>${esc(s.name)} ${s.group ? '<span class="badge tag">group</span>' : ''}${s.derived ? ' <span class="badge tag">unstamped</span>' : ''}</td>
+      <td class="num hide-sm">${s.count}</td><td class="num">${dur(s.p50)}</td>
+      <td class="num">${dur(s.p95)}</td><td class="num hide-sm">${dur(s.max)}</td>
+      <td class="barcell"><div class="hbar" title="p50 ${dur(s.p50)}, p95 ${dur(s.p95)}">
+        <span class="p95" style="width:${(((s.p95 ?? 0) / scale) * 100).toFixed(1)}%"></span>
+        <span class="p50" style="width:${(((s.p50 ?? 0) / scale) * 100).toFixed(1)}%"></span></div></td></tr>`,
+            )
+            .join('');
+          $('steps').innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Step</th><th class="num hide-sm">Runs</th><th class="num">p50</th><th class="num">p95</th>
+      <th class="num hide-sm">Max</th><th class="barcell">p50 (solid) and p95</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+        }
+        $('slowest').innerHTML =
+          b.slowest.length === 0
+            ? '<div class="empty">No runs yet.</div>'
+            : `<div class="table-wrap"><table>
+      <thead><tr><th>Name</th><th class="hide-sm">Branch</th><th>Exit</th><th class="num">Finished</th>
+      <th class="num">In slot</th><th class="num hide-sm">Waited</th><th class="hide-sm">Slowest step</th></tr></thead>
+      <tbody>${b.slowest
+        .map(
+          (
+            r,
+          ) => `<tr><td>${esc(r.name)}</td><td class="mono hide-sm">${esc(r.branch ?? '')}</td>
+        <td>${exitBadge(r.exitCode)}</td><td class="num">${clock(r.finishedAt)}</td>
+        <td class="num">${dur(r.runMs)}</td><td class="num hide-sm">${dur(r.slotWaitMs)}</td>
+        <td class="hide-sm">${r.slowestStep ? `${esc(r.slowestStep.name)} (${dur(r.slowestStep.durationMs)})` : '-'}</td></tr>`,
+        )
+        .join('')}
+      </tbody></table></div>`;
+      }
+
+      function render(state) {
+        latest = state;
+        const held =
+          state.slots
+            .map(
+              (s) =>
+                `slot-${s.slot}: ${s.owner ?? '?'}${s.repo ? ` (${s.repo})` : ''}`,
+            )
+            .join(', ') || 'no slots held';
+        $('summary').innerHTML =
+          `<strong>${state.running.length + state.heldWithoutRun.length}</strong> running ·
+    <strong>${state.waiting.length}</strong> waiting · ${esc(held)} · updated ${clock(state.generatedAt)}`;
+        renderRunning(state);
+        renderWaiting(state);
+        renderRecent(state);
+        renderBottlenecks(state);
+      }
+
+      async function poll() {
+        try {
+          const response = await fetch(
+            `/api/state?window=${encodeURIComponent($('window').value)}`,
+            { cache: 'no-store' },
+          );
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          render(await response.json());
+        } catch (error) {
+          $('summary').innerHTML =
+            `<span class="error">Cannot reach the dashboard server (${esc(error.message)}). Retrying.</span>`;
+        } finally {
+          setTimeout(poll, POLL_MS);
+        }
+      }
+
+      $('recent').addEventListener('click', (event) => {
+        const button = event.target.closest('button.toggle');
+        if (!button) return;
+        const id = button.dataset.id;
+        if (expanded.has(id)) expanded.delete(id);
+        else expanded.add(id);
+        if (latest) renderRecent(latest);
+      });
+
+      // Start from the server's --window, adding it to the list when it is
+      // not one of the presets; a choice saved in this browser still wins.
+      const served = $('window').dataset.default;
+      if (served) {
+        if (![...$('window').options].some((o) => o.value === served)) {
+          $('window').add(new Option(`last ${served} runs`, served));
+        }
+        $('window').value = served;
+      }
+      try {
+        const saved = localStorage.getItem('commit-queue-window');
+        if (saved) $('window').value = saved;
+      } catch {}
+      $('window').addEventListener('change', () => {
+        try {
+          localStorage.setItem('commit-queue-window', $('window').value);
+        } catch {}
+      });
+
+      poll();
+    </script>
+  </body>
+</html>

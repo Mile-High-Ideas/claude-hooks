@@ -33,6 +33,23 @@ exit code). The exit file is written last, through a rename, so its presence
 means the log is complete. Names may contain letters, digits, `.`, `_` and
 `-`, and must be unique among the repo's live runs.
 
+## Dashboard
+
+```bash
+commit-queue dashboard                 # http://127.0.0.1:4180
+commit-queue dashboard --port 4181 --window 100
+commit-queue dashboard --once          # print the bottleneck summary and exit
+```
+
+One page that refreshes every two seconds:
+
+- **Running:** each commit step by step against typical times, with a timeline. Slots taken with `acquire` show too, though they have no log.
+- **Waiting:** the line in serving order, with position, repo and wait time.
+- **Recently finished:** results, time in slot, and whether the app test suites ran in parallel or one after another (`testConfig.parallel`).
+- **Bottlenecks:** p50/p95 per step over the last N runs, and slot time split by test mode.
+
+Every scan stores newly finished runs in `<state>/history.jsonl`. The first scan backfills every log on disk. `COMMIT_QUEUE_DASHBOARD_PORT` sets the default port. The page and its statistics cover every repo using the queue, each run labelled with its repo.
+
 ## How the queue works
 
 State is plain files in one directory:
@@ -43,6 +60,7 @@ State is plain files in one directory:
 | `tickets/*.json` | One per waiter, with its arrival time and process id |
 | `slots/slot-N.json` | One per held slot, with its owner's process id |
 | `runs/<repo>/<name>.log`, `.exit` | Output and result of each `run` |
+| `history.jsonl` | Finished runs, kept by the dashboard |
 
 A waiter takes a slot only when its ticket is among the oldest N, where N is
 the number of free slots, so **nobody is overtaken**. Waiters re-check every

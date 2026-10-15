@@ -6,6 +6,7 @@
 //	commit-queue release <name>
 //	commit-queue status [--json]
 //	commit-queue wait [--all] [--poll <duration>]
+//	commit-queue dashboard [--port 4180] [--window 50] [--once]
 //
 // `run` is the usual entry point. Start it detached so it outlives the
 // agent that queued it:
@@ -32,6 +33,7 @@ const usage = `usage:
   commit-queue release <name>
   commit-queue status [--json]
   commit-queue wait [--all] [--poll <duration>]
+  commit-queue dashboard [--host 127.0.0.1] [--port 4180] [--window 50] [--once]
 
 Global flag (before the command): --slots <n>, or COMMIT_QUEUE_SLOTS.
 `
@@ -87,6 +89,8 @@ func dispatch(args []string, out, errOut io.Writer) int {
 			return 2
 		}
 		return waitForExits(*all, *poll, out)
+	case "dashboard":
+		return runDashboard(cmdArgs, *slots, out, errOut)
 	default:
 		say(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
