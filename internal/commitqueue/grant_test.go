@@ -309,3 +309,26 @@ func TestNeverMoreHoldersThanSlots(t *testing.T) {
 		t.Errorf("at most %d callers held a slot at once, want <= %d", got, slots)
 	}
 }
+
+func TestHoldsNeedsALiveHolderInTheSameRepo(t *testing.T) {
+	q, procs, _ := newTestQueue(t, 2)
+	mustAcquire(t, q, caller("a", 101))
+
+	for _, tt := range []struct {
+		name, repo string
+		want       bool
+	}{
+		{"a", "/repo", true},
+		{"a", "/other", false},
+		{"b", "/repo", false},
+	} {
+		got, err := q.Holds(tt.name, tt.repo)
+		if err != nil || got != tt.want {
+			t.Errorf("Holds(%s, %s) = %v, %v; want %v", tt.name, tt.repo, got, err, tt.want)
+		}
+	}
+	procs.kill(101)
+	if got, _ := q.Holds("a", "/repo"); got {
+		t.Error("Holds(a) = true after its holder exited")
+	}
+}

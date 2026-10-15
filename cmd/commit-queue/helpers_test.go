@@ -84,3 +84,10 @@ func commitIdentity(t *testing.T) {
 	t.Setenv("GIT_COMMITTER_NAME", "Test")
 	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
 }
+
+// gitTry is like git but returns the error, for commands expected to fail.
+func gitTry(dir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	return cmd.Run()
+}

@@ -33,6 +33,21 @@ exit code). The exit file is written last, through a rename, so its presence
 means the log is complete. Names may contain letters, digits, `.`, `_` and
 `-`, and must be unique among the repo's live runs.
 
+## Making agents use the queue
+
+`commit-queue require` is a commit hook gate. In an AI agent's shell (Claude Code sets `CLAUDECODE=1`, other agents `AI_AGENT`) it refuses any commit that did not come through `commit-queue run`. A person's own terminal has neither variable, so their commits pass.
+
+`run` makes its commit with `COMMIT_QUEUE_RUN=<name>` set. Setting that by hand does not help: `require` accepts it only when `<name>` holds a slot for this repo through a runner that is still alive. `commit-queue holds <name>` is that check on its own (exit 0 or 1).
+
+Wire it first in `pre-commit`, so a refused commit costs no suite time, and in `pre-merge-commit`, because a merge that `git merge` concludes by itself skips `pre-commit`:
+
+```bash
+# .husky/pre-commit and .husky/pre-merge-commit
+commit-queue require || exit 1
+```
+
+An agent that needs a merge commit runs `git merge --no-commit <ref>`, resolves and stages, then finishes it through `commit-queue run`.
+
 ## Dashboard
 
 ```bash
