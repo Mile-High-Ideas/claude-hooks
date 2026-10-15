@@ -14,7 +14,7 @@ setup-hooks:
     @echo "  .pre-commit.json (goLint + changelog), and run go test ./..."
 
 # Build all binaries
-build: check-workspace auto-convex-gen auto-lingui-extract auto-tiers-gen block-destructive-commands block-generated-files block-infrastructure block-lint-workarounds block-pre-commit-exceptions block-redundant-createdat changelog-add convex-gen docs-tracker enforce-tests-on-commit format-on-save markdown-formatter pre-commit smart-lint smart-test track-edited-files validate-convex validate-frontend-structure validate-srp validate-test-files validate-next
+build: check-workspace auto-convex-gen auto-lingui-extract auto-tiers-gen block-destructive-commands block-generated-files block-infrastructure block-lint-workarounds block-pre-commit-exceptions block-redundant-createdat changelog-add commit-queue convex-gen docs-tracker enforce-tests-on-commit format-on-save markdown-formatter pre-commit smart-lint smart-test track-edited-files validate-convex validate-frontend-structure validate-srp validate-test-files validate-next
 
 # Fail if any executable exists at the repo root with the same name as a cmd/*/ subdir.
 # These get created when someone runs `go build ./cmd/<name>` from the repo root without -o,
@@ -73,6 +73,9 @@ block-redundant-createdat:
 
 changelog-add:
     go build -o {{bindir}}/changelog-add ./cmd/changelog-add
+
+commit-queue:
+    go build -o {{bindir}}/commit-queue ./cmd/commit-queue
 
 convex-gen:
     go build -o {{bindir}}/convex-gen ./cmd/convex-gen
