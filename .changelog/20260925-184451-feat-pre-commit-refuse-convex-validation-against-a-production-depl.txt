@@ -1,0 +1,1 @@
+feat(pre-commit): refuse convex validation against a production deployment

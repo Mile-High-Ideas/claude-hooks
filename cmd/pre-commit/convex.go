@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -80,6 +81,10 @@ func evaluateConvexRun(mode, marker, output string, cmdErr error) error {
 func checkConvex(config ConvexConfig) error {
 	if config.Path == "" {
 		return fmt.Errorf("convex path is required")
+	}
+
+	if err := guardConvexProductionDeployment(config, os.LookupEnv); err != nil {
+		return err
 	}
 
 	mode := resolveConvexMode(config.Mode)

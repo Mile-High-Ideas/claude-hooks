@@ -359,8 +359,13 @@ type ConvexConfig struct {
 	Mode string `json:"mode"`
 	// SuccessMarker is the line that means success. Only consulted in "dev"
 	// mode; "codegen" has no completion line and is judged on exit status.
-	SuccessMarker  string `json:"successMarker"`
-	PackageManager string `json:"-"` // Inherited from global config
+	SuccessMarker string `json:"successMarker"`
+	// RefuseProductionDeployment blocks validation when CONVEX_DEPLOY_KEY or
+	// CONVEX_DEPLOYMENT (process env, or .env.local / .env under Path) names a
+	// production deployment. Nil means true: the guard is on unless a project
+	// explicitly sets it to false.
+	RefuseProductionDeployment *bool  `json:"refuseProductionDeployment,omitempty"`
+	PackageManager             string `json:"-"` // Inherited from global config
 }
 
 // BuildConfig configures build checks
