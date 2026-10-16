@@ -1,10 +1,37 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+// filesToCheck returns the files a run checks: the staged files, or with
+// --all-files every tracked file that exists in the working tree.
+func filesToCheck() ([]string, error) {
+	if allFiles {
+		return getTrackedFiles()
+	}
+	return getStagedFiles()
+}
+
+// getTrackedFiles returns every file in the index under the current
+// directory, relative to it, skipping any deleted from the working tree. It
+// backs --all-files, which feeds them to the checks in place of the staged list.
+func getTrackedFiles() ([]string, error) {
+	output, err := exec.Command("git", "ls-files").Output()
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, f := range parseStagedFiles(string(output)) {
+		if _, err := os.Stat(f); err == nil {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}
 
 // getStagedFiles returns a list of staged files from git
 // It only returns files that are Added, Copied, Modified, or Renamed
@@ -32,7 +59,13 @@ func parseStagedFiles(output string) []string {
 }
 
 // getNewlyAddedFiles returns a set of files that are newly added (not modified) in the staging area.
+//
+// With --all-files nothing is being added, so the set is empty and every file
+// is checked as an existing one.
 func getNewlyAddedFiles() (map[string]bool, error) {
+	if allFiles {
+		return map[string]bool{}, nil
+	}
 	cmd := exec.Command("git", "diff", "--cached", "--name-only", "--diff-filter=A", "--relative")
 	output, err := cmd.Output()
 	if err != nil {
