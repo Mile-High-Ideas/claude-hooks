@@ -39,6 +39,30 @@ Example:
 pre-commit --standalone --path ./apps/mobile
 ```
 
+### All-Files Mode
+
+Run the full suite, exactly as a commit would, over every tracked file instead
+of the staged ones:
+
+```bash
+pre-commit --all-files
+```
+
+Every app counts as affected, so lint, typecheck, tests, Convex validation and
+the Go checks all run. Use it for a CI audit, or on a machine whose hooks were
+never installed. It differs from a commit in four ways:
+
+- No commit is being made, so `branchProtection` and `changelog` are skipped,
+  and no lock is taken.
+- `lintStaged`, `tiersGen` and `linguiExtract` are skipped, because they rewrite
+  or stage files.
+- Nothing counts as newly added, so every file is checked as an existing one.
+- The staged-mode ratchets (`missingTestsCheck`, `stubTestCheck`, SRP strict on
+  staged) apply to every file, so debt they grandfather shows up.
+
+`--standalone` is a different mode: it runs a reduced set of static checks over
+a directory and cannot be combined with `--all-files`.
+
 ### Run Specific Check
 
 Run only one check instead of all enabled checks:
@@ -51,6 +75,7 @@ pre-commit --check <check-name>
 
 ### Primary Flags
 
+- `--all-files` - Run the full suite over every tracked file instead of the staged ones
 - `--standalone` - Run without git context, checking all files in a path
 - `--path <directory>` - Directory to check in standalone mode (required with `--standalone`)
 - `--check <check-name>` - Run only a specific check by name
@@ -104,7 +129,6 @@ Run `pre-commit --list` to see all available checks. Currently supported:
 
 See [validate-next](validate-next.md) for the Next.js checks, which are also
 available as a standalone binary.
-
 
 ## Convex validation modes
 

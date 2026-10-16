@@ -24,6 +24,7 @@ var (
 	configPath  string
 	reportDir   string
 	noLock      bool
+	allFiles    bool
 )
 
 func init() {
@@ -34,6 +35,7 @@ func init() {
 	flag.StringVar(&configPath, "config", "", "Path to .pre-commit.json config file (defaults to .pre-commit.json in target path)")
 	flag.StringVar(&reportDir, "report-dir", "", "Directory to write detailed lint/typecheck reports (creates lint/ and typecheck/ subdirs)")
 	flag.BoolVar(&noLock, "no-lock", false, "Skip exclusive lock (allow concurrent runs)")
+	flag.BoolVar(&allFiles, "all-files", false, "Run the full suite over every tracked file instead of the staged ones (no commit: skips branchProtection, changelog, lintStaged, tiersGen, linguiExtract)")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print full per-app output even when reports are being written. Default: compact status lines when report-dir is set.")
 }
 
@@ -263,9 +265,15 @@ func main() {
 		return
 	}
 
-	// Acquire exclusive lock to prevent concurrent pre-commit runs
+	if allFiles && standalone {
+		fmt.Fprintln(os.Stderr, "Error: --all-files and --standalone are different modes; pass one.")
+		os.Exit(2)
+	}
+
+	// Acquire exclusive lock to prevent concurrent pre-commit runs. An
+	// --all-files audit makes no commit, so it has nothing to serialize.
 	var lockFile *os.File
-	if !noLock {
+	if !noLock && !allFiles {
 		var err error
 		lockFile, err = acquireLock()
 		if err != nil {
@@ -393,15 +401,18 @@ func run() error {
 		reportDir = setupReportDir(config.ReportDir)
 	}
 
-	// Get staged files
-	stagedFiles, err := getStagedFiles()
+	// The staged files, or every tracked file with --all-files
+	stagedFiles, err := filesToCheck()
 	if err != nil {
-		return fmt.Errorf("failed to get staged files: %w", err)
+		return fmt.Errorf("failed to get files to check: %w", err)
 	}
 
 	if len(stagedFiles) == 0 {
 		fmt.Println("No staged files to check")
 		return nil
+	}
+	if allFiles {
+		fmt.Printf("--all-files: checking %d tracked files; branchProtection, changelog, lintStaged, tiersGen and linguiExtract are skipped (no commit is being made)\n\n", len(stagedFiles))
 	}
 
 	// Categorize files by app
@@ -420,7 +431,7 @@ func run() error {
 	// =====================================================================
 
 	// Branch protection
-	if config.Features.BranchProtection {
+	if config.Features.BranchProtection && !allFiles {
 		if err := checkBranchProtection(config.ProtectedBranches); err != nil {
 			return err
 		}
@@ -440,7 +451,7 @@ func run() error {
 	// All three fail fast on error.
 	// =====================================================================
 
-	if config.Features.Changelog {
+	if config.Features.Changelog && !allFiles {
 		printStart("Changelog")
 		if err := checkChangelog(stagedFiles, config.ChangelogExclude, config.ChangelogConfig, config.Apps); err != nil {
 			if compactMode() {
@@ -451,14 +462,14 @@ func run() error {
 		printStatus("Changelog", true, "")
 	}
 
-	if config.Features.LintStaged {
+	if config.Features.LintStaged && !allFiles {
 		printStart("Formatting")
 		if err := runLintStaged(config.LintStagedConfig); err != nil {
 			return err
 		}
 	}
 
-	if config.Features.TiersGen {
+	if config.Features.TiersGen && !allFiles {
 		printStart("Tiers gen")
 		projectRoot, _ := os.Getwd()
 		if err := checkTiersGen(projectRoot, stagedFiles); err != nil {
@@ -470,7 +481,7 @@ func run() error {
 	// linguiExtract: regenerates message catalogs (.po + compiled .ts) for any
 	// package whose staged source changed. Like tiersGen, must run before
 	// typecheck reads the regenerated output.
-	if config.Features.LinguiExtract {
+	if config.Features.LinguiExtract && !allFiles {
 		printStart("Lingui extract")
 		projectRoot, _ := os.Getwd()
 		if err := checkLinguiExtract(projectRoot, stagedFiles); err != nil {
