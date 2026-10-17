@@ -1,0 +1,1 @@
+feat: pre-commit --app and --skip narrow a run so CI can split the suite across jobs

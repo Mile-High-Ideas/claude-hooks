@@ -71,6 +71,27 @@ Run only one check instead of all enabled checks:
 pre-commit --check <check-name>
 ```
 
+### Split the Suite Across CI Jobs
+
+`--app` and `--skip` narrow a run so one suite can be spread over parallel
+runners, each with the machine to itself:
+
+```bash
+pre-commit --all-files --check tests --app web      # one app's tests
+pre-commit --all-files --check convexValidation     # one check
+pre-commit --all-files --skip lint,typecheck,tests,convexValidation,goLint,goTests
+                                                    # everything else
+```
+
+- `--app <name>[,<name>…]` keeps only those apps from `.pre-commit.json >
+  apps`, in any mode.
+- `--skip <feature>[,<feature>…]` turns those features off (by their
+  `.pre-commit.json` names) and runs the normal pipeline. It covers checks that
+  `--check` has no case for, such as `dataLayerCheck` and
+  `redundantCreatedAtCheck`.
+- An unknown app or feature name is an error, so a typo cannot pass by checking
+  nothing. `--skip` with `--check` is rejected.
+
 ## Command Line Arguments and Flags
 
 ### Primary Flags
@@ -79,6 +100,8 @@ pre-commit --check <check-name>
 - `--standalone` - Run without git context, checking all files in a path
 - `--path <directory>` - Directory to check in standalone mode (required with `--standalone`)
 - `--check <check-name>` - Run only a specific check by name
+- `--app <name>[,<name>…]` - Check only these apps
+- `--skip <feature>[,<feature>…]` - Turn these features off and run the rest
 - `--list` - List all available checks
 - `--config <path>` - Path to `.pre-commit.json` config file (defaults to project root)
 - `--report-dir <directory>` - Write detailed analysis reports to this directory

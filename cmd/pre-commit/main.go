@@ -25,6 +25,8 @@ var (
 	reportDir   string
 	noLock      bool
 	allFiles    bool
+	appFilter   string
+	skipFilter  string
 )
 
 func init() {
@@ -35,6 +37,8 @@ func init() {
 	flag.StringVar(&configPath, "config", "", "Path to .pre-commit.json config file (defaults to .pre-commit.json in target path)")
 	flag.StringVar(&reportDir, "report-dir", "", "Directory to write detailed lint/typecheck reports (creates lint/ and typecheck/ subdirs)")
 	flag.BoolVar(&noLock, "no-lock", false, "Skip exclusive lock (allow concurrent runs)")
+	flag.StringVar(&appFilter, "app", "", "Check only these apps from .pre-commit.json (comma-separated), e.g. --check tests --app web")
+	flag.StringVar(&skipFilter, "skip", "", "Turn off these features (comma-separated .pre-commit.json names) and run the rest")
 	flag.BoolVar(&allFiles, "all-files", false, "Run the full suite over every tracked file instead of the staged ones (no commit: skips branchProtection, changelog, lintStaged, tiersGen, linguiExtract)")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print full per-app output even when reports are being written. Default: compact status lines when report-dir is set.")
 }
@@ -265,6 +269,11 @@ func main() {
 		return
 	}
 
+	if skipFilter != "" && checkName != "" {
+		fmt.Fprintln(os.Stderr, "Error: --skip with --check has nothing to skip; --check already runs one check.")
+		os.Exit(2)
+	}
+
 	if allFiles && standalone {
 		fmt.Fprintln(os.Stderr, "Error: --all-files and --standalone are different modes; pass one.")
 		os.Exit(2)
@@ -390,6 +399,9 @@ func run() error {
 	config, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if err := applyRunScope(config, appFilter, skipFilter); err != nil {
+		return err
 	}
 
 	// Register warning-only checks so printStatus downgrades their failures
