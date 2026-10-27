@@ -82,6 +82,81 @@ func TestSkipFeatures(t *testing.T) {
 	}
 }
 
+// A per-app `enabled: true` override turns tests on even when features.tests
+// is off, so --skip tests has to clear those overrides too. Without that, a
+// repo with overrides ran every test suite in the slice meant to skip them.
+func TestApplyRunScopeSkipTestsClearsEnabledOverrides(t *testing.T) {
+	on, off := true, false
+	tests := []struct {
+		name        string
+		skip        string
+		overrides   map[string]AppTestOverride
+		wantEnabled map[string]*bool
+	}{
+		{
+			name:        "skip tests clears enabled overrides",
+			skip:        "tests",
+			overrides:   map[string]AppTestOverride{"web": {Enabled: &on}, "mobile": {Enabled: &off}},
+			wantEnabled: map[string]*bool{"web": nil, "mobile": nil},
+		},
+		{
+			name:        "skipping another feature keeps overrides",
+			skip:        "lint",
+			overrides:   map[string]AppTestOverride{"web": {Enabled: &on}},
+			wantEnabled: map[string]*bool{"web": &on},
+		},
+		{
+			name:        "no skip keeps overrides",
+			skip:        "",
+			overrides:   map[string]AppTestOverride{"web": {Enabled: &on}},
+			wantEnabled: map[string]*bool{"web": &on},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &Config{
+				Features:   Features{Tests: true, Lint: true},
+				TestConfig: TestConfig{AppOverrides: tt.overrides},
+			}
+			if err := applyRunScope(config, "", tt.skip); err != nil {
+				t.Fatal(err)
+			}
+			for app, want := range tt.wantEnabled {
+				got := config.TestConfig.AppOverrides[app].Enabled
+				if (got == nil) != (want == nil) || (got != nil && *got != *want) {
+					t.Errorf("%s: enabled = %v, want %v", app, ptrString(got), ptrString(want))
+				}
+			}
+		})
+	}
+}
+
+// The gate in run() and the per-app filter in the test runner both read the
+// overrides; after --skip tests neither may select an app.
+func TestSkipTestsLeavesNoAppEnabled(t *testing.T) {
+	on := true
+	config := &Config{
+		Features:   Features{Tests: true},
+		TestConfig: TestConfig{AppOverrides: map[string]AppTestOverride{"web": {Enabled: &on}, "backend": {Enabled: &on}}},
+	}
+	if err := applyRunScope(config, "", "tests"); err != nil {
+		t.Fatal(err)
+	}
+	if testsRequested(config) {
+		t.Error("testsRequested = true after --skip tests, want false")
+	}
+}
+
+func ptrString(b *bool) string {
+	if b == nil {
+		return "nil"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
+}
+
 // The scope has to be applied to the config run() hands the checks, not to a
 // copy: --skip changelog must let a staged change with no fragment through,
 // and an unknown --app must stop the run.

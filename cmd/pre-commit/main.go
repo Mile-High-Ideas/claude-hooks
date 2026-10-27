@@ -818,18 +818,7 @@ func run() error {
 		})
 	}
 
-	// Tests - run if global enabled OR any per-app override enables tests
-	shouldRunTests := config.Features.Tests
-	if !shouldRunTests {
-		// Check if any app has tests explicitly enabled
-		for _, override := range config.TestConfig.AppOverrides {
-			if override.Enabled != nil && *override.Enabled {
-				shouldRunTests = true
-				break
-			}
-		}
-	}
-	if shouldRunTests {
+	if testsRequested(config) {
 		asyncCheck("Tests", "tests", func() error {
 			testCtx := TestRunContext{
 				AllApps:        config.Apps,

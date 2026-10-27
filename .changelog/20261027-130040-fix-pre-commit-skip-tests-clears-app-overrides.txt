@@ -1,0 +1,5 @@
+fix(pre-commit): make --skip tests win over per-app enabled overrides
+
+A testConfig.appOverrides entry with enabled: true turned an app's tests
+back on after --skip tests, so a CI slice meant to skip tests ran every
+suite. --skip tests now clears those overrides.
