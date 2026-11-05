@@ -33,6 +33,19 @@ func extractErrorCount(err error) int {
 	return 1 // fallback: at least 1 error if the function returned an error
 }
 
+// failureDetail is the status-line text for a failed check: "N errors" when
+// err reports a count ("found N ..."), otherwise err's own message. A check
+// that could not start (compiler not installed, say) has no count, and
+// printing "1 errors" for it hides the reason in compact mode, where nothing
+// else of the check's output reaches the terminal.
+func failureDetail(err error) string {
+	var count int
+	if _, scanErr := fmt.Sscanf(err.Error(), "found %d ", &count); scanErr == nil {
+		return fmt.Sprintf("%d errors", count)
+	}
+	return err.Error()
+}
+
 // phaseJob represents a single app's participation in one phase (lint or typecheck).
 type phaseJob struct {
 	name    string
@@ -139,7 +152,7 @@ func runLintTo(w io.Writer, apps map[string]AppConfig, appFiles map[string][]str
 					fmt.Fprintf(&output, "   ❌ %s lint failed\n", j.name)
 					errs = extractErrorCount(lintErr)
 					err = lintErr
-					printStatus(appCheck, false, fmt.Sprintf("%d errors", errs))
+					printStatus(appCheck, false, failureDetail(lintErr))
 				} else {
 					fmt.Fprintf(&output, "   ✓ %s passed lint\n", j.name)
 					printStatus(appCheck, true, "")
@@ -256,7 +269,7 @@ func runTypecheckTo(w io.Writer, apps map[string]AppConfig, appFiles map[string]
 					fmt.Fprintf(&output, "   ❌ %s typecheck failed\n", j.name)
 					errs = extractErrorCount(tcErr)
 					err = tcErr
-					printStatus(appCheck, false, fmt.Sprintf("%d errors", errs))
+					printStatus(appCheck, false, failureDetail(tcErr))
 				} else {
 					fmt.Fprintf(&output, "   ✓ %s passed typecheck\n", j.name)
 					printStatus(appCheck, true, "")
@@ -275,7 +288,7 @@ func runTypecheckTo(w io.Writer, apps map[string]AppConfig, appFiles map[string]
 						fmt.Fprintf(&output, "   ❌ %s incremental typecheck failed\n", j.name)
 						errs = extractErrorCount(tcErr)
 						err = tcErr
-						printStatus(appCheck, false, fmt.Sprintf("%d errors", errs))
+						printStatus(appCheck, false, failureDetail(tcErr))
 					} else {
 						fmt.Fprintf(&output, "   ✓ %s passed incremental typecheck\n", j.name)
 						printStatus(appCheck, true, fmt.Sprintf("%d files", len(lintFiles)))
@@ -329,11 +342,7 @@ func finalizePhaseResults(w io.Writer, phaseName, reportSubdir string, results [
 			})
 			parts := make([]string, 0, len(failedResults))
 			for _, r := range failedResults {
-				if r.Errors > 0 {
-					parts = append(parts, fmt.Sprintf("%s %d errors", r.AppName, r.Errors))
-				} else {
-					parts = append(parts, r.AppName+" failed")
-				}
+				parts = append(parts, r.AppName+" "+failureDetail(r.Err))
 			}
 			printStatusTo(w, phaseName, false, strings.Join(parts, ", "))
 			printReportHintTo(w, reportSubdir)

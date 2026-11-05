@@ -1,0 +1,1 @@
+fix: find node_modules/.bin tools on Windows and print why lint or typecheck could not run

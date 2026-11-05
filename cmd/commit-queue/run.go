@@ -137,7 +137,10 @@ func gitCommit(ctx context.Context, worktree string, args, env []string, log io.
 		if cmd.Process.Signal(os.Interrupt) != nil {
 			_ = cmd.Process.Kill()
 		}
-		<-done
+		// Wait for git to exit; the signal, not git, decides the exit code.
+		if err := <-done; err != nil {
+			say(log, "[run-commit] git commit after interrupt: %v\n", err)
+		}
 		return signalExitCode(ctx, 130)
 	}
 }
