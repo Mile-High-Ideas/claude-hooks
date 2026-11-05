@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -390,5 +391,44 @@ func TestGoLintConfig_DefaultTool(t *testing.T) {
 	err := checkGoLint([]string{}, config)
 	if err != nil {
 		t.Errorf("checkGoLint() with default tool config = %v, want nil", err)
+	}
+}
+
+func TestGoLintCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		tool     string
+		wantName string
+		wantArgs []string
+	}{
+		{
+			name:     "golangci-lint waits for another instance's lock",
+			tool:     "golangci-lint",
+			wantName: "golangci-lint",
+			wantArgs: []string{"run", "--allow-serial-runners", "./..."},
+		},
+		{
+			name:     "go vet fallback",
+			tool:     "go-vet",
+			wantName: "go",
+			wantArgs: []string{"vet", "./..."},
+		},
+		{
+			name:     "unknown tool runs go vet",
+			tool:     "staticcheck",
+			wantName: "go",
+			wantArgs: []string{"vet", "./..."},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotName, gotArgs := goLintCommand(tt.tool)
+			if gotName != tt.wantName {
+				t.Errorf("goLintCommand(%q) name = %q, want %q", tt.tool, gotName, tt.wantName)
+			}
+			if strings.Join(gotArgs, " ") != strings.Join(tt.wantArgs, " ") {
+				t.Errorf("goLintCommand(%q) args = %q, want %q", tt.tool, gotArgs, tt.wantArgs)
+			}
+		})
 	}
 }
