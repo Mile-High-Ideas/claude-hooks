@@ -42,13 +42,8 @@ func checkGoLint(stagedFiles []string, config GoLintConfig) error {
 			fmt.Printf("   Linting Go code in %s...\n", dir)
 		}
 
-		var out string
-		var err error
-		if tool == "golangci-lint" {
-			out, err = runCommandCapturedInDir(dir, "golangci-lint", "run", "./...")
-		} else {
-			out, err = runCommandCapturedInDir(dir, "go", "vet", "./...")
-		}
+		name, args := goLintCommand(tool)
+		out, err := runCommandCapturedInDir(dir, name, args...)
 		if !compactMode() && out != "" {
 			fmt.Print(out)
 		}
@@ -67,6 +62,21 @@ func checkGoLint(stagedFiles []string, config GoLintConfig) error {
 	}
 
 	return nil
+}
+
+// goLintCommand returns the command checkGoLint runs in each directory for
+// the given tool: "golangci-lint", or anything else for go vet.
+//
+// golangci-lint takes a file lock in $TMPDIR at start and, by default, exits
+// with "parallel golangci-lint is running" when another instance holds it.
+// commit-queue runs two suites at once with one shared TMPDIR per repo, so the
+// second suite to reach Go lint failed with no finding at all.
+// --allow-serial-runners makes it wait for the lock instead.
+func goLintCommand(tool string) (string, []string) {
+	if tool == "golangci-lint" {
+		return "golangci-lint", []string{"run", "--allow-serial-runners", "./..."}
+	}
+	return "go", []string{"vet", "./..."}
 }
 
 // filterGoFiles filters staged files to only .go files matching configured paths
