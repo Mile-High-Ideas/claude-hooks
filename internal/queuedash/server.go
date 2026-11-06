@@ -83,7 +83,8 @@ func (d *Dashboard) scan() (Scan, error) {
 	return scan, nil
 }
 
-// Handler serves the page at / and its JSON at /api/state?window=N.
+// Handler serves the page at /, its JSON at /api/state?window=N, and
+// POST /api/abandoned/remove, which deletes one abandoned run's log.
 func (d *Dashboard) Handler() http.Handler {
 	page := withDefaultWindow(dashboardHTML, d.defaultWindow)
 	mux := http.NewServeMux()
@@ -105,6 +106,7 @@ func (d *Dashboard) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(state)
 	})
+	mux.HandleFunc("/api/abandoned/remove", d.handleRemoveAbandoned)
 	return mux
 }
 
