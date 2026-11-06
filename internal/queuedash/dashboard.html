@@ -279,6 +279,28 @@
         outline-offset: 2px;
         border-radius: 3px;
       }
+      button.remove {
+        font: inherit;
+        font-size: 12.5px;
+        color: var(--fail);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 1px 9px;
+        cursor: pointer;
+      }
+      button.remove:hover:not(:disabled) {
+        background: var(--fail-bg);
+        border-color: var(--fail);
+      }
+      button.remove:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      button.remove:disabled {
+        color: var(--muted);
+        cursor: default;
+      }
       .table-wrap {
         overflow-x: auto;
       }
@@ -690,9 +712,49 @@
             : `in slot-${esc(r.slot)}${last ? `, last step ${esc(last.name)}` : ''}`;
         return `<tr><td>${esc(r.name)}</td><td class="mono hide-sm">${esc(r.branch ?? '')}</td>
         <td>${where}</td><td class="num">${clock(r.queuedAt)}</td>
-        <td class="mono">${held ? `commit-queue release ${esc(r.name)}` : 're-queue it'}</td></tr>`;
+        <td>${held ? `<span class="mono">commit-queue release ${esc(r.name)}</span>` : removeButton(r)}</td></tr>`;
       })
-      .join('')}</tbody></table></div>`;
+      .join('')}</tbody></table></div>
+    ${removeError ? `<p class="error">${esc(removeError)}</p>` : ''}`;
+      }
+
+      // Runs being removed right now, by repoKey/name, so a poll that lands
+      // mid-request keeps their button disabled.
+      const removing = new Set();
+      let removeError = '';
+
+      function removeButton(r) {
+        const key = `${r.repoKey}/${r.name}`;
+        return `<button type="button" class="remove" data-repo-key="${esc(r.repoKey)}"
+          data-name="${esc(r.name)}" ${removing.has(key) ? 'disabled' : ''}
+          aria-label="Remove abandoned run ${esc(r.name)}">Remove</button>`;
+      }
+
+      async function removeAbandoned(repoKey, name) {
+        const key = `${repoKey}/${name}`;
+        removing.add(key);
+        removeError = '';
+        if (latest) renderRunning(latest);
+        try {
+          const response = await fetch('/api/abandoned/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repoKey, name }),
+          });
+          if (!response.ok) {
+            throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+          }
+          if (latest) {
+            latest.abandoned = latest.abandoned.filter(
+              (r) => !(r.repoKey === repoKey && r.name === name),
+            );
+          }
+        } catch (error) {
+          removeError = `Could not remove ${name}: ${error.message}`;
+        } finally {
+          removing.delete(key);
+          if (latest) renderRunning(latest);
+        }
       }
 
       function renderWaiting(state) {
@@ -875,6 +937,12 @@
           setTimeout(poll, POLL_MS);
         }
       }
+
+      $('abandoned').addEventListener('click', (event) => {
+        const button = event.target.closest('button.remove');
+        if (!button || button.disabled) return;
+        removeAbandoned(button.dataset.repoKey, button.dataset.name);
+      });
 
       $('recent').addEventListener('click', (event) => {
         const button = event.target.closest('button.toggle');
