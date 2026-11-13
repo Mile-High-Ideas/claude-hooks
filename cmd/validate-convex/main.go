@@ -1,15 +1,9 @@
 // Command validate-convex is a PreToolUse hook (Write|Edit) that lints the edited
-// Convex file and blocks (exit 2) on opted-in rules from .convex-lint.json:
-//
-//   - errorRules        — @milehighideas/oxlint-plugin-convex rules, run via
-//     oxlint (fast, syntactic). Gated on rule-id membership (oxlint -D does not
-//     override a JS-plugin rule's config severity).
-//   - eslintErrorRules  — @convex-dev/eslint-plugin rules (the type-aware ones
-//     oxlint can't do, e.g. explicit-table-ids), run via eslint_d (the daemon
-//     keeps the TS program warm so a single-file lint is sub-second). Best
-//     effort: if eslint_d isn't installed, this pass is silently skipped.
-//
-// Both default to empty = dormant.
+// Convex file with oxlint and blocks (exit 2) on the rules listed in
+// .convex-lint.json errorRules: bare ids for @milehighideas/oxlint-plugin-convex
+// rules, "@convex-dev/<rule>" for @convex-dev/eslint-plugin rules loaded through
+// oxlint's jsPlugins. Gated on rule-id membership (oxlint -D does not override a
+// JS-plugin rule's config severity). Empty errorRules = dormant.
 package main
 
 import (
@@ -21,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/milehighideas/claude-hooks/internal/convexrules"
 	"github.com/milehighideas/claude-hooks/internal/jsonc"
 )
 
@@ -38,12 +33,13 @@ type hookInput struct {
 type convexCfg struct {
 	AppPaths     []string `json:"appPaths"`
 	ExcludePaths []string `json:"excludePaths"`
-	// ErrorRules: oxlint-plugin-convex rule ids enforced (blocking) at edit
-	// time. Empty = dormant. .oxlintrc.json stays at "warn"; this is the ratchet.
+	// ErrorRules: Convex rule ids enforced (blocking) at edit time, bare for
+	// oxlint-plugin-convex and "@convex-dev/<rule>" for @convex-dev/eslint-plugin.
+	// Empty = dormant. .oxlintrc.json stays at "warn"; this is the ratchet.
 	ErrorRules []string `json:"errorRules"`
-	// EslintErrorRules: @convex-dev/eslint-plugin rule ids (bare, e.g.
-	// "explicit-table-ids") enforced at edit time via eslint_d.
-	EslintErrorRules []string `json:"eslintErrorRules"`
+	// LegacyEslintErrorRules is the old eslintErrorRules key, decoded only to
+	// warn that it no longer has any effect.
+	LegacyEslintErrorRules []string `json:"eslintErrorRules"`
 }
 
 func isConvexTarget(path string, appPaths, exclude []string) bool {
@@ -80,16 +76,6 @@ func toSet(xs []string) map[string]bool {
 	return s
 }
 
-// convexRuleID turns an oxlint diagnostic code like "convex(type-exports-location)"
-// into the bare rule id "type-exports-location"; "" if not a convex rule.
-func convexRuleID(code string) string {
-	const prefix = "convex("
-	if !strings.HasPrefix(code, prefix) || !strings.HasSuffix(code, ")") {
-		return ""
-	}
-	return code[len(prefix) : len(code)-1]
-}
-
 type oxlintResult struct {
 	Diagnostics []struct {
 		Code    string `json:"code"`
@@ -98,14 +84,14 @@ type oxlintResult struct {
 }
 
 // oxlintViolations runs oxlint on path and returns formatted messages for any
-// convex(*) diagnostic whose rule id is in want. It uses the project-pinned
+// Convex diagnostic (convex(*) or @convex-dev(*)) whose errorRules id is in want. It uses the project-pinned
 // oxlint (node_modules/.bin/oxlint) so the edit-time hook matches the version
 // the commit gate and app lint use. Best effort: if it isn't installed (fresh
 // clone, mid-install), returns nil so a transient state never blocks an edit.
 func oxlintViolations(projectRoot, path string, want map[string]bool) []string {
 	bin := filepath.Join(projectRoot, "node_modules", ".bin", "oxlint")
 	if _, err := os.Stat(bin); err != nil {
-		return nil // oxlint not installed — skip (mirrors eslintViolations)
+		return nil // oxlint not installed — skip
 	}
 	cmd := exec.Command(bin, "--format=json", path)
 	cmd.Dir = projectRoot
@@ -116,47 +102,8 @@ func oxlintViolations(projectRoot, path string, want map[string]bool) []string {
 	}
 	var msgs []string
 	for _, d := range res.Diagnostics {
-		if rule := convexRuleID(d.Code); rule != "" && want[rule] {
-			msgs = append(msgs, fmt.Sprintf("  ✗ convex/%s — %s", rule, d.Message))
-		}
-	}
-	return msgs
-}
-
-type eslintResult struct {
-	Messages []struct {
-		RuleID  string `json:"ruleId"`
-		Message string `json:"message"`
-		Line    int    `json:"line"`
-	} `json:"messages"`
-}
-
-// eslintViolations runs eslint_d on path (daemon keeps the TS program warm) and
-// returns messages for any @convex-dev/<rule> whose bare rule id is in want.
-// Best effort: if eslint_d isn't installed, returns nil (no block).
-func eslintViolations(projectRoot, path string, want map[string]bool) []string {
-	bin := filepath.Join(projectRoot, "node_modules", ".bin", "eslint_d")
-	if _, err := os.Stat(bin); err != nil {
-		return nil // eslint_d not available — skip the type-aware pass
-	}
-	cmd := exec.Command(bin, "--format", "json", path)
-	cmd.Dir = projectRoot
-	out, _ := cmd.Output() // non-zero exit on lint errors; JSON still on stdout
-
-	var results []eslintResult
-	if json.Unmarshal(out, &results) != nil {
-		return nil
-	}
-	var msgs []string
-	for _, r := range results {
-		for _, m := range r.Messages {
-			const prefix = "@convex-dev/"
-			if !strings.HasPrefix(m.RuleID, prefix) {
-				continue
-			}
-			if want[strings.TrimPrefix(m.RuleID, prefix)] {
-				msgs = append(msgs, fmt.Sprintf("  ✗ %s:%d — %s", m.RuleID, m.Line, m.Message))
-			}
+		if rule := convexrules.RuleKey(d.Code); rule != "" && want[rule] {
+			msgs = append(msgs, fmt.Sprintf("  ✗ %s — %s", rule, convexrules.CleanMessage(d.Message)))
 		}
 	}
 	return msgs
@@ -197,10 +144,10 @@ func projectedContent(in hookInput) (string, bool) {
 // resolve) inside a dot-prefixed subdir of the original file's directory (so
 // oxlint config discovery walks up to the same .oxlintrc.json / tsconfig, and
 // Convex's dev watcher — which ignores dotdirs — skips it), then runs the same
-// oxlint + eslint passes against it. Cleans up explicitly (defers don't run on
+// oxlint pass against it. Cleans up explicitly (defers don't run on
 // os.Exit). Returns (msgs, true) on success; (nil, false) if the temp couldn't
 // be set up, so the caller falls back to the on-disk lint.
-func lintProjected(projectRoot, origPath, content string, oxSet, esSet map[string]bool) ([]string, bool) {
+func lintProjected(projectRoot, origPath, content string, want map[string]bool) ([]string, bool) {
 	dir := filepath.Dir(origPath)
 	tmpDir, err := os.MkdirTemp(dir, ".convexlint-tmp-")
 	if err != nil {
@@ -211,21 +158,9 @@ func lintProjected(projectRoot, origPath, content string, oxSet, esSet map[strin
 		_ = os.RemoveAll(tmpDir)
 		return nil, false
 	}
-	msgs := onDiskViolations(projectRoot, tmpPath, oxSet, esSet)
+	msgs := oxlintViolations(projectRoot, tmpPath, want)
 	_ = os.RemoveAll(tmpDir)
 	return msgs, true
-}
-
-// onDiskViolations runs the oxlint + eslint passes against a real file path.
-func onDiskViolations(projectRoot, path string, oxSet, esSet map[string]bool) []string {
-	var msgs []string
-	if len(oxSet) > 0 {
-		msgs = append(msgs, oxlintViolations(projectRoot, path, oxSet)...)
-	}
-	if len(esSet) > 0 {
-		msgs = append(msgs, eslintViolations(projectRoot, path, esSet)...)
-	}
-	return msgs
 }
 
 func main() {
@@ -253,10 +188,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	oxSet := toSet(cfg.ErrorRules)
-	esSet := toSet(cfg.EslintErrorRules)
-	if len(oxSet) == 0 && len(esSet) == 0 {
-		os.Exit(0) // fully dormant
+	if len(cfg.LegacyEslintErrorRules) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  %s\n", convexrules.LegacyEslintKeyWarning)
+	}
+	want := toSet(cfg.ErrorRules)
+	if len(want) == 0 {
+		os.Exit(0) // dormant
 	}
 
 	cwd, _ := os.Getwd()
@@ -265,13 +202,13 @@ func main() {
 	// edit can't be projected (e.g. old_string not found, unreadable file).
 	var msgs []string
 	if content, ok := projectedContent(in); ok {
-		if m, done := lintProjected(cwd, path, content, oxSet, esSet); done {
+		if m, done := lintProjected(cwd, path, content, want); done {
 			msgs = m
 		} else {
-			msgs = onDiskViolations(cwd, path, oxSet, esSet)
+			msgs = oxlintViolations(cwd, path, want)
 		}
 	} else {
-		msgs = onDiskViolations(cwd, path, oxSet, esSet)
+		msgs = oxlintViolations(cwd, path, want)
 	}
 
 	if len(msgs) > 0 {

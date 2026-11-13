@@ -1,0 +1,1 @@
+feat: convex lint gates run @convex-dev rules through oxlint instead of eslint_d; list them in errorRules as "@convex-dev/<rule>"

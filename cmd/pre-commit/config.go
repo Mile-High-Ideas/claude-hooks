@@ -82,9 +82,9 @@ type RedundantCreatedAtCheckConfig struct {
 	ExcludePaths []string `json:"excludePaths"`
 }
 
-// ConvexCheckConfig configures the convexCheck feature: it runs the
-// @milehighideas/oxlint-plugin-convex rules on staged Convex files and blocks
-// on the rules listed in ErrorRules. Thresholds (maxLines/maxFunctions/
+// ConvexCheckConfig configures the convexCheck feature: it runs oxlint (with
+// the @milehighideas/oxlint-plugin-convex and @convex-dev/eslint-plugin JS
+// plugins) on staged Convex files and blocks on the rules listed in ErrorRules. Thresholds (maxLines/maxFunctions/
 // crudDomains) are read by the oxlint plugin itself from this same .pre-commit
 // block; this struct is the Go side's view.
 type ConvexCheckConfig struct {
@@ -96,15 +96,15 @@ type ConvexCheckConfig struct {
 	// ErrorRules is the set of convex rule ids promoted to error on
 	// changed/edited files (the ratchet). Empty = dormant (nothing blocks).
 	// `.oxlintrc.json` stays at "warn" so fullLint/CI never block on existing
-	// violations; enforcement is opt-in per rule here. e.g.
-	// ["type-exports-location", "no-any-returns"]. crud-structure additionally
-	// self-gates to convexCheckConfig.crudDomains inside the plugin.
+	// violations; enforcement is opt-in per rule here. Bare ids are
+	// @milehighideas/oxlint-plugin-convex rules; "@convex-dev/<rule>" ids are
+	// @convex-dev/eslint-plugin rules loaded through oxlint's jsPlugins. e.g.
+	// ["type-exports-location", "@convex-dev/explicit-table-ids"].
+	// crud-structure additionally self-gates to crudDomains inside the plugin.
 	ErrorRules []string `json:"errorRules"`
-	// EslintErrorRules is the set of @convex-dev/eslint-plugin rule ids (bare,
-	// e.g. "explicit-table-ids") — the type-aware rules oxlint can't do —
-	// enforced on staged convex files via eslint_d. Empty = skip the eslint
-	// pass. Best-effort: silently skipped if eslint_d isn't installed.
-	EslintErrorRules []string `json:"eslintErrorRules"`
+	// LegacyEslintErrorRules is the old eslintErrorRules key, decoded only so
+	// the gate can warn that it no longer has any effect.
+	LegacyEslintErrorRules []string `json:"eslintErrorRules"`
 }
 
 // MissingTestsCheckConfig configures the missing-tests detector. Same shape
