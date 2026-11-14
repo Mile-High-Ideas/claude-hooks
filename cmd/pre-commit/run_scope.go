@@ -15,7 +15,40 @@ func applyRunScope(config *Config, apps, skip string) error {
 	if err := restrictApps(config, splitList(apps)); err != nil {
 		return err
 	}
-	return skipFeatures(&config.Features, splitList(skip))
+	skipped := splitList(skip)
+	if err := skipFeatures(&config.Features, skipped); err != nil {
+		return err
+	}
+	for _, name := range skipped {
+		if name == "tests" {
+			clearEnabledTestOverrides(&config.TestConfig)
+		}
+	}
+	return nil
+}
+
+// clearEnabledTestOverrides drops every per-app `enabled` override. An
+// `enabled: true` override turns an app's tests on even with features.tests
+// off, so skipping the feature alone left them running under --skip tests.
+func clearEnabledTestOverrides(testConfig *TestConfig) {
+	for app, override := range testConfig.AppOverrides {
+		override.Enabled = nil
+		testConfig.AppOverrides[app] = override
+	}
+}
+
+// testsRequested reports whether the tests check runs at all: the global
+// feature is on, or some app's override turns tests on for that app.
+func testsRequested(config *Config) bool {
+	if config.Features.Tests {
+		return true
+	}
+	for _, override := range config.TestConfig.AppOverrides {
+		if override.Enabled != nil && *override.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // restrictApps keeps only the named apps. An unknown name is an error, so a
