@@ -97,16 +97,24 @@ func writeLintReport(appName, linterName, rawOutput string, allErrors, realError
 	return writeDualReport(baseDir, "lint", appName, findings, sb.String())
 }
 
-// runEslint runs the project's installed ESLint with --fix (see resolveNodeBin).
+// runLinter runs linter ("oxlint" or "eslint") in appPath with args.
+func runLinter(linter, appPath string, args ...string) (string, error) {
+	if linter == "oxlint" {
+		return runOxlint(appPath, args...)
+	}
+	return runEslint(appPath, args...)
+}
+
+// runEslint runs the project's installed ESLint with args (see resolveNodeBin).
 // It never reaches for a global or npx-fetched copy; if eslint isn't installed
 // it returns an error so the commit fails loudly rather than passing unlinted.
-func runEslint(appPath string) (string, error) {
+func runEslint(appPath string, args ...string) (string, error) {
 	bin, ok := resolveNodeBin(appPath, "eslint")
 	if !ok {
 		return "", fmt.Errorf("eslint is not installed for %s — run your install and retry", appPath)
 	}
 
-	cmd := exec.Command(bin, "--fix", ".")
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = appPath
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -116,18 +124,18 @@ func runEslint(appPath string) (string, error) {
 	return stdout.String(), nil
 }
 
-// runOxlint runs the project's installed Oxlint with --fix (see resolveNodeBin).
+// runOxlint runs the project's installed Oxlint with args (see resolveNodeBin).
 // It never falls back to a global or network-fetching runner. If oxlint isn't
 // installed it returns an error so the commit fails loudly — a missing linter
 // must never pass as a clean lint. Combined stdout+stderr is returned for
 // parsing.
-func runOxlint(appPath string) (string, error) {
+func runOxlint(appPath string, args ...string) (string, error) {
 	bin, ok := resolveNodeBin(appPath, "oxlint")
 	if !ok {
 		return "", fmt.Errorf("oxlint is not installed for %s — run your install (e.g. bun install) and retry", appPath)
 	}
 
-	cmd := exec.Command(bin, "--fix", ".")
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = appPath
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -446,8 +454,16 @@ func runConvexEslintBuffered(lf LintFilter) (string, error) {
 	return output.String(), nil
 }
 
-// runFilteredLintBuffered runs the configured linter and returns buffered output (for parallel execution)
-func runFilteredLintBuffered(appName, appPath string, lf LintFilter) (string, error) {
+// runFilteredLintBuffered lints the whole app at appPath and returns buffered
+// output (for parallel execution).
+//
+// On a commit, the app's fully staged files (stagedFiles, relative to the
+// current directory) are first fixed and re-staged so the fixes land in the
+// commit; see fixStagedLintFiles. The whole-app pass that decides the result
+// never runs --fix, so an autofixable finding anywhere else fails the commit
+// and is left on disk for the developer. --all-files makes no commit, so it
+// fixes nothing.
+func runFilteredLintBuffered(appName, appPath string, stagedFiles []string, lf LintFilter) (string, error) {
 	var output strings.Builder
 
 	excludePaths := lf.ExcludePaths
@@ -461,15 +477,15 @@ func runFilteredLintBuffered(appName, appPath string, lf LintFilter) (string, er
 		linter = "eslint"
 	}
 
-	var lintOutput string
-	var err error
-
-	if linter == "oxlint" {
-		lintOutput, err = runOxlint(appPath)
-	} else {
-		lintOutput, err = runEslint(appPath)
+	if !allFiles {
+		fix, err := fixStagedLintFiles(linter, appPath, stagedFiles)
+		if err != nil {
+			return "", err
+		}
+		writeLintFixSummary(&output, fix)
 	}
 
+	lintOutput, err := runLinter(linter, appPath, ".")
 	if err != nil {
 		return "", err
 	}
@@ -522,6 +538,7 @@ func runFilteredLintBuffered(appName, appPath string, lf LintFilter) (string, er
 			}
 			fmt.Fprintf(&output, "  %s:%s  %s  %s  %s\n", e.line, e.column, e.severity, e.message, e.rule)
 		}
+		fmt.Fprintf(&output, "\n   The hook only autofixes fully staged files. For the rest, run %s --fix on them and stage the result.\n", linter)
 		return output.String(), fmt.Errorf("found %d lint error(s)", len(realErrors))
 	}
 

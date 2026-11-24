@@ -55,7 +55,7 @@ never installed. It differs from a commit in four ways:
 - No commit is being made, so `branchProtection` and `changelog` are skipped,
   and no lock is taken.
 - `lintStaged`, `tiersGen` and `linguiExtract` are skipped, because they rewrite
-  or stage files.
+  or stage files. Lint runs without `--fix` for the same reason.
 - Nothing counts as newly added, so every file is checked as an existing one.
 - The staged-mode ratchets (`missingTestsCheck`, `stubTestCheck`, SRP strict on
   staged) apply to every file, so debt they grandfather shows up.
@@ -721,6 +721,14 @@ Runs ESLint and TypeScript checks in parallel for all affected apps.
 
 - **Incremental**: Only check staged files (default)
 - **Full**: Check entire app (enabled with `fullLintOnCommit`)
+
+In full mode the linter runs `--fix` only on the app's fully staged files and
+stages the ones it changed, so the fixes land in the commit. The whole-app pass
+that decides the result runs without `--fix`: an autofixable finding in a file
+that isn't staged fails the commit and names the file, which is left as it is.
+A partially staged file (staged and unstaged changes) is not fixed, since
+staging the fix would pull its unstaged changes into the commit; its findings
+are reported. `--all-files` fixes nothing.
 
 ### Tests
 
