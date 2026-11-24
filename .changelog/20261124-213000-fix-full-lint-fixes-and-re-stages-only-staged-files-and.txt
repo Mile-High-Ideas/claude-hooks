@@ -1,0 +1,1 @@
+fix: full lint fixes and re-stages only staged files and fails on autofixable findings elsewhere instead of rewriting them

@@ -146,7 +146,7 @@ func runLintTo(w io.Writer, apps map[string]AppConfig, appFiles map[string][]str
 				printStatus(appCheck, true, "skipped")
 			} else if j.full {
 				fmt.Fprintf(&output, "🔍 Running full lint for %s...\n", j.name)
-				lintOutput, lintErr := runFilteredLintBuffered(j.name, j.config.Path, lintFilter)
+				lintOutput, lintErr := runFilteredLintBuffered(j.name, j.config.Path, j.files, lintFilter)
 				output.WriteString(lintOutput)
 				if lintErr != nil {
 					fmt.Fprintf(&output, "   ❌ %s lint failed\n", j.name)

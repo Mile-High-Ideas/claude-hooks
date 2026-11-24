@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // filesToCheck returns the files a run checks: the staged files, or with
@@ -44,6 +46,40 @@ func getStagedFiles() ([]string, error) {
 	}
 
 	return parseStagedFiles(string(output)), nil
+}
+
+// getUnstagedFiles returns the files whose working-tree copy differs from the
+// index, relative to the current directory. A staged file in this set is
+// partially staged: writing to it and re-staging it would pull its unstaged
+// changes into the commit.
+func getUnstagedFiles() (map[string]bool, error) {
+	output, err := exec.Command("git", "diff", "--name-only", "--relative").Output()
+	if err != nil {
+		return nil, fmt.Errorf("list unstaged files: %w", err)
+	}
+	result := make(map[string]bool)
+	for _, f := range parseStagedFiles(string(output)) {
+		result[f] = true
+	}
+	return result, nil
+}
+
+// gitIndexMu serializes writes to the git index. Lint jobs run one goroutine
+// per app, and two concurrent `git add`s fail on index.lock.
+var gitIndexMu sync.Mutex
+
+// stageFiles runs `git add` on files, paths relative to the current directory.
+func stageFiles(files []string) error {
+	if len(files) == 0 {
+		return nil
+	}
+	gitIndexMu.Lock()
+	defer gitIndexMu.Unlock()
+	args := append([]string{"add", "--"}, files...)
+	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("git add: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // parseStagedFiles parses git diff output into a slice of file paths
